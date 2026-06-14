@@ -168,18 +168,64 @@
   }
 
   // Render plain caption text (subtitle). Empty string clears the caption.
+  // Clears any loader state so the caption renders as plain text and the
+  // `:empty` hiding rule still applies when text is "".
   function renderCaption(text) {
     if (!captionEl) return;
     captionEl.classList.remove("ytx-error", "ytx-status");
-    captionEl.textContent = text || "";
+    delete captionEl.dataset.ytxMode;
+    delete captionEl.dataset.ytxLabel;
+    captionEl.textContent = text || ""; // replaces any .ytx-loader child node
   }
 
-  // Render a status/error message that persists until replaced.
+  // Render a status/error message that persists until replaced. Used for hard
+  // errors (sticky, red). Non-error "waiting" states route through
+  // renderLoading() for the animated loader instead.
   function renderStatus(text, isError) {
     if (!captionEl) return;
     captionEl.classList.remove("ytx-error", "ytx-status");
+    delete captionEl.dataset.ytxMode;
+    delete captionEl.dataset.ytxLabel;
     captionEl.classList.add(isError ? "ytx-error" : "ytx-status");
-    captionEl.textContent = text || "";
+    captionEl.textContent = text || ""; // replaces any .ytx-loader child node
+  }
+
+  // Render the FANCY animated loader (audio equalizer + shimmering label) for a
+  // non-error "waiting" state. IDEMPOTENT: re-evaluated on every timeupdate, so
+  // we must NOT rebuild the DOM when already showing the same loader text —
+  // rebuilding would restart the CSS animations and cause a visible flicker.
+  // We track mode+label on captionEl.dataset and bail early when they match.
+  function renderLoading(text) {
+    if (!captionEl) return;
+    const label = text || "";
+    if (
+      captionEl.dataset.ytxMode === "loading" &&
+      captionEl.dataset.ytxLabel === label
+    ) {
+      return; // already showing this exact loader — leave the animation running
+    }
+    captionEl.classList.remove("ytx-error");
+    captionEl.classList.add("ytx-status");
+    captionEl.dataset.ytxMode = "loading";
+    captionEl.dataset.ytxLabel = label;
+
+    const loader = document.createElement("span");
+    loader.className = "ytx-loader";
+
+    const bars = document.createElement("span");
+    bars.className = "bars";
+    for (let i = 0; i < 5; i++) {
+      bars.appendChild(document.createElement("i"));
+    }
+    loader.appendChild(bars);
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "label";
+    labelEl.textContent = label; // untrusted-ish text via textContent, never HTML
+    loader.appendChild(labelEl);
+
+    captionEl.textContent = ""; // clear prior content (caption/status/old loader)
+    captionEl.appendChild(loader);
   }
 
   // Remove the overlay entirely from the DOM. Removes the module-tracked
@@ -420,7 +466,7 @@
         /* will surface via onerror/onclose */
       }
       s.statusText = WAIT_MSG;
-      renderStatus(s.statusText, false);
+      renderLoading(s.statusText);
       // Begin streaming playback position so the helper can stay ahead.
       startPositionReporting(s);
     };
@@ -634,9 +680,9 @@
     if (!s || !s.video || !captionEl) return;
     // Don't overwrite a sticky error message.
     if (captionEl.classList.contains("ytx-error")) return;
-    // While the gate is holding, the overlay always shows the waiting message.
+    // While the gate is holding, the overlay always shows the waiting loader.
     if (s.pausedByUs) {
-      renderStatus(WAIT_MSG, false);
+      renderLoading(WAIT_MSG);
       return;
     }
 
@@ -656,14 +702,14 @@
     const lastEnd = s.segments.length ? s.segments[s.segments.length - 1].end : -1;
     const waiting = lastEnd < t;
     if (waiting && s.statusText) {
-      if (
-        captionEl.textContent !== s.statusText ||
-        !captionEl.classList.contains("ytx-status")
-      ) {
-        renderStatus(s.statusText, false);
-      }
-    } else if (captionEl.textContent !== "") {
-      renderCaption("");
+      // renderLoading is itself idempotent on mode+label, so calling it here is
+      // safe (no DOM rebuild / animation restart when already showing this).
+      renderLoading(s.statusText);
+    } else if (
+      captionEl.dataset.ytxMode === "loading" ||
+      captionEl.textContent !== ""
+    ) {
+      renderCaption(""); // clear loader (or stale text) during a normal gap
     }
   }
 
@@ -936,7 +982,7 @@
       if (sendResponse) sendResponse({ ok: false, reason: "no video" });
       return; // synchronous
     }
-    renderStatus("♻ Re-translating…", false);
+    renderLoading("♻ Re-translating…");
     fetch(HELPER_BASE + "/reset", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

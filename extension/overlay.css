@@ -62,6 +62,127 @@
   opacity: 0.92;
 }
 
+/* ---- Animated loader (audio equalizer + shimmering label) ----------------
+ * Shown for non-error "waiting" states (warming up, buffering, gate-hold,
+ * re-translating). Built by renderLoading() inside .ytx-caption as:
+ *   <span class="ytx-loader">
+ *     <span class="bars"><i>×5</span>
+ *     <span class="label">…text…</span>
+ *   </span>
+ * The .ytx-status pill background above provides the dark translucent chip. */
+
+.ytx-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  font-style: normal; /* override the italic .ytx-status text */
+  line-height: 1;
+}
+
+/* The equalizer: a row of slim bars that bounce with staggered delays. */
+.ytx-loader .bars {
+  display: inline-flex;
+  align-items: center; /* bars grow from the vertical centre */
+  gap: 0.16em;
+  height: 0.9em;
+}
+
+.ytx-loader .bars i {
+  display: block;
+  width: 0.16em;
+  height: 100%;
+  border-radius: 0.1em;
+  background: linear-gradient(180deg, #ffffff, #cfe0ff);
+  /* glow so the bars read over any video frame */
+  box-shadow: 0 0 4px rgba(140, 180, 255, 0.55);
+  transform: scaleY(0.35);
+  transform-origin: center;
+  will-change: transform;
+  animation: ytx-eq 1s ease-in-out infinite;
+}
+
+/* Staggered delays + slightly varied durations give an organic, non-robotic
+ * bounce rather than five bars moving in lockstep. */
+.ytx-loader .bars i:nth-child(1) { animation-delay: 0s;     animation-duration: 1.05s; }
+.ytx-loader .bars i:nth-child(2) { animation-delay: 0.18s;  animation-duration: 0.85s; }
+.ytx-loader .bars i:nth-child(3) { animation-delay: 0.36s;  animation-duration: 1.15s; }
+.ytx-loader .bars i:nth-child(4) { animation-delay: 0.12s;  animation-duration: 0.95s; }
+.ytx-loader .bars i:nth-child(5) { animation-delay: 0.30s;  animation-duration: 1.1s;  }
+
+/* The label: a soft light-to-bright sheen sweeping left→right. Uses
+ * background-clip:text so the gradient shimmer rides through the glyphs while
+ * staying fully legible (the mid stop is near-white). */
+.ytx-loader .label {
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0.78) 0%,
+    rgba(255, 255, 255, 0.78) 35%,
+    #ffffff 50%,
+    rgba(255, 255, 255, 0.78) 65%,
+    rgba(255, 255, 255, 0.78) 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  /* keep the legibility shadow even with transparent fill */
+  animation: ytx-shimmer 2.4s linear infinite;
+}
+
+@keyframes ytx-eq {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ytx-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+/* Respect reduced-motion: drop the bounce/shimmer for a calm static state. */
+@media (prefers-reduced-motion: reduce) {
+  .ytx-loader .bars i {
+    animation: ytx-eq-still 1.8s ease-in-out infinite;
+    transform: scaleY(0.7);
+  }
+  .ytx-loader .bars i:nth-child(n) {
+    animation-delay: 0s;
+    animation-duration: 1.8s;
+  }
+  .ytx-loader .label {
+    animation: none;
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
+  }
+}
+
+/* Gentle opacity pulse used as the reduced-motion fallback (no scaling). */
+@keyframes ytx-eq-still {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* Font-size variants, toggled by class on the container. */
 .ytx-caption-container.ytx-size-small {
   --ytx-font-size: 20px;
