@@ -4,6 +4,90 @@
 //   2. Provide a tiny messaging glue endpoint (currently used so other
 //      contexts can ask for defaults without duplicating them).
 
+// Starter glossary (Czech → English). One entry per line: "term" or
+// "term = preferred". Comma-separated options on the right are treated by the
+// LLM as alternatives — it picks the one that best fits the sentence. Seeded
+// into storage on install AND whenever the user's glossary is empty (see below),
+// so it reaches existing installs on the next extension reload. Edit/clear it
+// freely in the popup; a non-empty value is never overwritten.
+const DEFAULT_GLOSSARY = `blbec = idiot, moron
+idiot = idiot
+debil = moron, dumbass
+magor = psycho, nutcase
+kretén = cretin, idiot
+vůl = idiot, dumb ox
+pitomec = fool, idiot
+trouba = dummy, fool
+dement = moron, idiot
+retard = retard
+
+kokot = asshole, dickhead
+píča = cunt, dumb bitch
+čurák = dickhead, prick
+zmrd = scumbag, motherfucker
+mrdka = piece of shit
+sráč = asshole, coward
+hajzl = asshole, bastard
+kunda = cunt
+buzna = faggot
+šulina = dickhead, little dick
+
+do prdele = for fuck's sake, damn it
+kurva = fuck
+kurva fix = fucking hell
+ty vole = dude, bro, holy shit
+doprdele práce = for fuck's sake
+ježiši kriste = Jesus Christ
+sakra = damn
+do hajzlu = go to hell, fuck this
+no ty píčo = holy fuck
+kurva drát = fucking hell
+
+co to je za kokotinu = what is this bullshit
+to si děláš prdel = are you kidding me
+běž do prdele = fuck off
+ses posral ne = are you out of your mind
+to je úplně v píči = this is completely fucked
+tak tohle je mrdka = this is garbage
+co je to za bullshit = what is this bullshit
+ty vole neee = dude noooo
+kurvaaa = fuuuck
+
+cringe = cringe
+npc = npc
+brainrot = brainrot
+autista = autist (insult)
+lobotom = lobotomite, brain-dead person
+schizo = schizo
+opice = monkey, ape
+klaun = clown
+klauníček = little clown
+copium = copium
+cope = cope
+
+kkt = asshole, dickhead
+p*ča = cunt
+pica = cunt
+pyčo = fuck, holy shit
+pyčo vole = holy fuck dude
+čůrák = dickhead
+curak = dickhead
+kokutek = little dickhead
+kokůtek = little dickhead
+krva = fuck
+kruci = darn, dang
+doprkna = damn it
+
+kámo = bro, mate
+brácho = brother, bro
+no tak = come on
+počkej = wait
+ježišmarja = oh my god
+no do píči = holy fuck
+cože = what
+jak jako = what do you mean
+to nemyslíš vážně = you can't be serious`;
+
 // Single source of truth for default settings. Kept in sync with popup.js.
 const DEFAULT_SETTINGS = {
   enabled: true, // master on/off switch
@@ -25,7 +109,7 @@ const DEFAULT_SETTINGS = {
   diarize: false,
   enrolledOnly: false, // when on, show ONLY the enrolled "your voice" speaker (drops game audio + other speakers)
   // Multiline glossary: one entry per line, "term" or "term = preferred". Sent to the helper.
-  glossary: "",
+  glossary: DEFAULT_GLOSSARY,
   // Display name for the enrolled "your voice" speaker (overrides the enroll file name).
   highlightName: "",
   // Colour painted on the enrolled speaker's captions (default red).
@@ -40,6 +124,13 @@ chrome.runtime.onInstalled.addListener(async () => {
     const merged = {};
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       merged[key] = key in current ? current[key] : value;
+    }
+    // Seed the starter glossary when the user hasn't set one (empty/whitespace
+    // counts as unset). This is what delivers the shipped default to EXISTING
+    // installs on reload — a plain key-present check would keep their old "".
+    // A non-empty glossary the user has edited is left untouched.
+    if (typeof merged.glossary !== "string" || merged.glossary.trim() === "") {
+      merged.glossary = DEFAULT_SETTINGS.glossary;
     }
     await chrome.storage.sync.set(merged);
   } catch (err) {
