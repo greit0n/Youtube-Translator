@@ -3,7 +3,7 @@ helper/cookies.txt
 cookies.txt
 
 # Helper runtime artifacts
-helper/helper.log
+helper/*.log
 helper/cache/
 helper/__pycache__/
 **/__pycache__/

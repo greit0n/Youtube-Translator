@@ -39,7 +39,10 @@
   // past it (hysteresis avoids pause/play flicker on the boundary).
   const RESUME_MARGIN = 1.5; // seconds of covered cushion required to resume
   const COVER_EPS = 0.05; // float slop for interval membership
-  const WAIT_MSG = "⏳ waiting for subtitles…";
+  // Seeks make YouTube fire its own play/pause events that aren't user intent;
+  // ignore those for override detection for a short grace window after a seek.
+  const SEEK_GRACE_MS = 1200;
+  const WAIT_MSG = "⏳ Waiting for subtitles…";
 
   // The video session currently active. Encapsulates everything that must be
   // torn down when we navigate away or re-init: the socket, the buffered
@@ -257,10 +260,14 @@
       s.video.removeEventListener("timeupdate", s.onTimeUpdate);
       s.video.removeEventListener("seeking", s.onTimeUpdate);
     }
-    // Remove the gate's play/pause listeners and never leave a video stuck on a
-    // pause WE issued — resume it so the page isn't frozen after teardown.
+    // Remove the gate's play/pause/seek listeners and never leave a video stuck
+    // on a pause WE issued — resume it so the page isn't frozen after teardown.
     if (s.video && s.onPause) s.video.removeEventListener("pause", s.onPause);
     if (s.video && s.onPlay) s.video.removeEventListener("play", s.onPlay);
+    if (s.video && s.onSeekGate) {
+      s.video.removeEventListener("seeking", s.onSeekGate);
+      s.video.removeEventListener("seeked", s.onSeekGate);
+    }
     if (s.video && s.pausedByUs) {
       try {
         const p = s.video.play();
@@ -374,7 +381,7 @@
       } catch (_e) {
         /* will surface via onerror/onclose */
       }
-      s.statusText = "… Translating audio…";
+      s.statusText = WAIT_MSG;
       renderStatus(s.statusText, false);
       // Begin streaming playback position so the helper can stay ahead.
       startPositionReporting(s);
@@ -410,14 +417,27 @@
     };
   }
 
+  // Map the helper's raw status phases to ONE friendly, emoji'd overlay line so
+  // the user sees a single consistent "waiting" message instead of a parade of
+  // internal phase names (resolving/transcribing/…). Informative states keep
+  // their own clear message.
+  function friendlyStatus(raw) {
+    const m = String(raw || "").toLowerCase();
+    if (m.includes("throttl")) return "🐢 YouTube is throttling — buffering…";
+    if (m.includes("ollama")) return "🔁 Switching to fast translation…";
+    if (m.includes("model")) return "⏳ Warming up the model…";
+    // resolving stream / transcribing / cached / anything else generic:
+    return WAIT_MSG;
+  }
+
   // Handle a parsed message from the helper.
   function handleHelperMessage(s, msg) {
     if (!msg || typeof msg !== "object") return;
     switch (msg.type) {
       case "status":
-        // Remember the latest status; it stays on screen whenever there's no
-        // caption to show at the current moment (e.g. while buffering/throttled).
-        s.statusText = String(msg.message || "Working…");
+        // Remember the latest status (mapped to one friendly message); it stays
+        // on screen whenever there's no caption at the current moment.
+        s.statusText = friendlyStatus(msg.message);
         updateCaptionForCurrentTime(s);
         break;
       case "segment":
@@ -528,8 +548,10 @@
     }
   }
 
-  // The decision: pause when "now" isn't covered, resume when it is (+margin).
-  // Called on timeupdate/seeking and whenever coverage grows.
+  // The decision, written as a RECONCILER between desired and actual state so a
+  // stray YouTube play/pause around a seek can't leave us wedged: we re-derive
+  // what we want every call rather than trusting accumulated flags.
+  // Called on timeupdate, seek, and whenever coverage grows.
   function updateGate(s) {
     if (!settings.autoPause) return;
     if (!s || s.generation !== sessionGeneration || !s.video) return;
@@ -539,30 +561,33 @@
     const covEnd = coveredEndAt(s, t);
     const coveredNow = covEnd !== null;
 
-    if (s.pausedByUs) {
-      // Holding: resume once covered with cushion (or covered to the video end).
-      const dur = Number.isFinite(s.video.duration) ? s.video.duration : Infinity;
-      const enough =
-        coveredNow && (covEnd >= t + RESUME_MARGIN || covEnd >= dur - 0.1);
-      if (enough) {
-        s.pausedByUs = false;
-        s.userOverride = false;
-        gatePlay(s);
-        updateCaptionForCurrentTime(s);
+    if (coveredNow) {
+      // "Now" is transcribed → never hold here. Re-arm any override, and if we
+      // were the one holding, resume once there's enough cushion (or near EOF).
+      s.userOverride = false;
+      if (s.pausedByUs) {
+        const dur = Number.isFinite(s.video.duration) ? s.video.duration : Infinity;
+        const enough = covEnd >= t + RESUME_MARGIN || covEnd >= dur - 0.1;
+        if (enough) {
+          s.pausedByUs = false;
+          gatePlay(s);
+          updateCaptionForCurrentTime(s);
+        }
       }
       return;
     }
 
-    if (s.userOverride) {
-      // User played through our hold: don't re-pause until coverage catches up.
-      if (coveredNow) s.userOverride = false;
-      return;
-    }
+    // Uncovered. If the user deliberately played through the hold, leave it be.
+    if (s.userOverride) return;
 
-    if (!coveredNow && !s.video.paused) {
+    // We want it held. Re-assert the pause even if pausedByUs is already set
+    // (a stray play may have un-paused the video underneath us).
+    if (!s.video.paused) {
       s.pausedByUs = true;
       gatePause(s);
       updateCaptionForCurrentTime(s); // shows WAIT_MSG while held
+    } else if (s.pausedByUs) {
+      updateCaptionForCurrentTime(s);
     }
   }
 
@@ -636,41 +661,57 @@
       pausedByUs: false, // true while the gate is holding playback
       userOverride: false, // user played through a hold; suppress re-pausing
       selfAction: false, // our own pause()/play() in flight (vs the user's)
+      lastSeekAt: 0, // ts of last seek; play/pause within grace = not user intent
       onPlay: null, // user-intent detection listeners
-      onPause: null
+      onPause: null,
+      onSeekGate: null // seeking/seeked handler for the gate
     };
     session = s;
 
     ensureOverlay(player);
     syncFullscreenClass();
 
-    // Bind timeupdate + seeking for caption lookup + playback gating.
+    // Bind timeupdate for caption lookup + playback gating during playback.
     s.onTimeUpdate = () => {
       if (s.generation !== sessionGeneration) return;
       updateGate(s);
       updateCaptionForCurrentTime(s);
     };
     video.addEventListener("timeupdate", s.onTimeUpdate);
-    video.addEventListener("seeking", s.onTimeUpdate);
 
-    // User-intent detection for the gate: distinguish our pause/play from the
-    // user's so we never fight a manual action.
+    // Seeks get their own handler: stamp the seek time (so play/pause events it
+    // triggers aren't mistaken for user intent), drop any stale override, and
+    // re-evaluate the gate at the new position.
+    s.onSeekGate = () => {
+      if (s.generation !== sessionGeneration) return;
+      s.lastSeekAt = Date.now();
+      s.userOverride = false;
+      updateGate(s);
+      updateCaptionForCurrentTime(s);
+    };
+    video.addEventListener("seeking", s.onSeekGate);
+    video.addEventListener("seeked", s.onSeekGate);
+
+    // User-intent detection for the gate: distinguish our pause/play AND
+    // seek-induced play/pause from a genuine manual action.
     s.onPause = () => {
       if (s.generation !== sessionGeneration) return;
       if (s.selfAction) { s.selfAction = false; return; } // our pause
-      s.pausedByUs = false; // user paused -> we won't auto-resume it
+      if (Date.now() - s.lastSeekAt < SEEK_GRACE_MS) return; // seek artifact
+      s.pausedByUs = false; // genuine user pause -> we won't auto-resume it
     };
     s.onPlay = () => {
       if (s.generation !== sessionGeneration) return;
       if (s.selfAction) { s.selfAction = false; return; } // our play
-      if (s.pausedByUs) {
-        // User is overriding an active hold: respect it and back off until
-        // coverage catches up to the playhead again.
+      const seekInduced = Date.now() - s.lastSeekAt < SEEK_GRACE_MS;
+      if (s.pausedByUs && !seekInduced) {
+        // Genuine user play through an active hold: respect it and back off
+        // until coverage catches up to the playhead again.
         s.pausedByUs = false;
         if (coveredEndAt(s, s.video.currentTime) === null) s.userOverride = true;
       }
-      // A normal play on a fresh/uncovered spot falls through so updateGate
-      // (next tick / below) can hold at the start as designed.
+      // Reconcile: a seek-induced play (or a normal start) is re-held here if
+      // the current spot still isn't covered.
       updateGate(s);
     };
     video.addEventListener("pause", s.onPause);
