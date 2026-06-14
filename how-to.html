@@ -352,8 +352,8 @@ ffmpeg -version</code></pre>
         <p>For <strong>Speaker labels</strong> you don't need any extra <code>pip</code> install, but you do need a <strong>free HuggingFace token</strong> (a one-time setup):</p>
         <ul class="plain">
           <li>Create a free account at <a href="https://huggingface.co">huggingface.co</a>.</li>
-          <li>While logged in, open <strong>pyannote/speaker-diarization-3.1</strong> and <strong>pyannote/segmentation</strong> and <strong>accept the usage terms</strong> on each page.</li>
-          <li>Create an access token under <em>Settings → Access Tokens</em>, then give it to the helper one of two ways: set an <code>HF_TOKEN</code> environment variable, <strong>or</strong> save the token into a file at <code>helper\hf_token.txt</code>.</li>
+          <li>While logged in, open <a href="https://huggingface.co/pyannote/speaker-diarization-community-1"><strong>pyannote/speaker-diarization-community-1</strong></a> and <a href="https://huggingface.co/pyannote/embedding"><strong>pyannote/embedding</strong></a> and click <strong>“Agree and access repository”</strong> on each (the Website field accepts any URL, e.g. your GitHub).</li>
+          <li>Create a <strong>Read</strong> access token under <em>Settings → Access Tokens</em>, then give it to the helper one of two ways: set an <code>HF_TOKEN</code> environment variable, <strong>or</strong> save the token on one line into a file at <code>helper\hf_token.txt</code>.</li>
         </ul>
         <div class="callout info">
           <p>These extras are completely optional. If you skip them, <strong>Clean audio</strong> and <strong>Speaker labels</strong> simply do nothing (subtitles still work normally) — nothing breaks.</p>

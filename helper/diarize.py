@@ -255,8 +255,10 @@ class SpeakerTracker:
             _log("diarize: loading speaker embedding model (first use) …")
             from pyannote.audio import Inference, Model
 
+            # pyannote.audio 4.x renamed the auth kwarg use_auth_token -> token
+            # (passing use_auth_token silently drops it -> 401 on the gated repo).
             emb_model = Model.from_pretrained(
-                "pyannote/embedding", use_auth_token=token
+                "pyannote/embedding", token=token
             )
             self._embedding = Inference(
                 emb_model,
