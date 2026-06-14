@@ -479,23 +479,40 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     # Fast beam at the playhead (latency is felt here); full beam
                     # for pre-buffered windows you haven't reached yet (quality).
                     beam = 1 if at_playhead else 5
-                    raw = await asyncio.to_thread(
+                    # transcribe() now yields (s, e, t, detected_lang) and does
+                    # NOT force the language (so we can filter by what's actually
+                    # spoken). detected is used by the language filter below.
+                    segs = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe(
-                            clean_wav, language=language, time_offset=cursor,
+                            clean_wav, time_offset=cursor,
                             hotwords=hotwords, beam_size=beam,
                             model_name=whisper_model,
                         ),
                     )
-                    segs = [(s, e, t, None) for (s, e, t) in raw]
                 else:
+                    # language=None -> auto-detect so the filter below can work.
                     segs = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe_source(
-                            clean_wav, language=language, time_offset=cursor,
+                            clean_wav, language=None, time_offset=cursor,
                             hotwords=hotwords, model_name=whisper_model,
                         ),
                     )
+
+                # Language filter: when the user picked a specific spoken language
+                # (not "auto"), only keep windows actually DETECTED as that
+                # language — e.g. subtitle the Czech speaker but show nothing while
+                # the (English) game audio plays. segs carry the detected language
+                # as the 4th tuple element; detection is per-window.
+                if language and segs:
+                    detected = segs[0][3]
+                    if detected and detected != language:
+                        _log(
+                            f"window [{cursor:.1f},{window_end:.1f}] "
+                            f"detected={detected} != filter={language} -> skip"
+                        )
+                        segs = []
 
                 # Optional speaker diarization: tag each segment with a stable
                 # global "Speaker N" label. Must run INSIDE this try (before the

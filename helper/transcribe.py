@@ -246,12 +246,15 @@ def transcribe(
     initial_prompt: Optional[str] = None,
     beam_size: int = 5,
     model_name: Optional[str] = None,
-) -> Iterator[Tuple[float, float, str]]:
-    """Translate `audio_path` to English, yielding (start, end, text) segments.
+) -> Iterator[Tuple[float, float, str, str]]:
+    """Translate `audio_path` to English, yielding (start, end, text, detected)
+    segments where `detected` is the auto-detected SOURCE language code (so the
+    caller can filter windows by spoken language).
 
     Args:
         audio_path: path to a decodable audio file (WhisperX uses ffmpeg).
-        language: source language ISO code (e.g. "cs") or None to auto-detect.
+        language: kept for signature compat; NOT forced (see note below) — the
+            caller filters by the detected language instead.
         time_offset: seconds to ADD to every timestamp. Used when the audio was
             clipped / windowed so timestamps stay absolute to the original video.
         hotwords: optional space-separated hint words biasing recognition
@@ -289,16 +292,20 @@ def transcribe(
     # FasterWhisperPipeline.transcribe defaults task to "transcribe" when omitted
     # (asr.py: `task = task or "transcribe"`), IGNORING the load-time task — which
     # silently produced source-language (e.g. Czech) output instead of English.
+    #
+    # `language` is intentionally NOT forced here even when provided: the caller
+    # uses the detected language (4th tuple element) to FILTER windows by spoken
+    # language (e.g. subtitle Czech, skip English game audio). Forcing would make
+    # whisper transcribe English-as-Czech garbage instead of detecting "en".
     kwargs = dict(batch_size=16, task="translate")
-    if language is not None:
-        kwargs["language"] = language
     result = model.transcribe(audio, **kwargs)
 
+    detected = result.get("language") or language or "unknown"
     for seg in result.get("segments", []):
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        yield (seg["start"] + time_offset, seg["end"] + time_offset, text)
+        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, detected)
 
 
 def transcribe_source(
@@ -372,8 +379,8 @@ def main(argv: list[str]) -> int:
         file=sys.stderr,
     )
 
-    for start, end, text in transcribe(audio_path, language=language):
-        print(f"[{_format_ts(start)} --> {_format_ts(end)}] {text}")
+    for start, end, text, detected in transcribe(audio_path, language=language):
+        print(f"[{_format_ts(start)} --> {_format_ts(end)}] ({detected}) {text}")
 
     return 0
 
