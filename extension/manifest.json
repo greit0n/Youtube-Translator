@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "YouTube → English Subtitles (Local Translator)",
-  "version": "1.6.0",
+  "name": "YouTube \u00e2\u2020\u2019 English Subtitles (Local Translator)",
+  "version": "1.6.1",
   "description": "Overlays live English subtitles on YouTube videos, translated by a local helper running on 127.0.0.1:8765.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
   "host_permissions": [
     "http://127.0.0.1:8765/*",
     "ws://127.0.0.1:8765/*"
@@ -17,9 +20,15 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/watch*"],
-      "js": ["content.js"],
-      "css": ["overlay.css"],
+      "matches": [
+        "https://www.youtube.com/watch*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "overlay.css"
+      ],
       "run_at": "document_idle"
     }
   ]

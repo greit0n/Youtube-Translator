@@ -247,7 +247,10 @@
   // We track mode+label on captionEl.dataset and bail early when they match.
   function renderLoading(text) {
     if (!captionEl) return;
-    const label = text || "";
+    // Strip any leading emoji/symbol (e.g. "⏳ ", "🐢 ") — the animated bars are
+    // the icon, and the emoji rendered as an ugly tofu glyph next to them.
+    const raw = text || "";
+    const label = raw.replace(/^[^\p{L}\p{N}]+/u, "").trim() || raw.trim();
     if (
       captionEl.dataset.ytxMode === "loading" &&
       captionEl.dataset.ytxLabel === label
