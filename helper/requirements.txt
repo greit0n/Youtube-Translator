@@ -1,4 +1,10 @@
+whisperx
 faster-whisper
+# Pin ctranslate2 to 4.8.0: REQUIRED for the Blackwell / sm_120 GPU (RTX 5070 Ti).
+# faster-whisper's GPU path only works on this card with exactly 4.8.0 (see
+# memory/blackwell-ctranslate2-cuda.md). whisperx may try to pull a different
+# ctranslate2 transitively — do NOT let it downgrade/upgrade this.
+ctranslate2==4.8.0
 yt-dlp
 fastapi
 uvicorn[standard]

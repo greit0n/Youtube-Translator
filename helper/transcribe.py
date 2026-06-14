@@ -1,5 +1,10 @@
 """Whisper transcription for the YouTube translator helper.
 
+Now powered by **WhisperX** (`whisperx`), which wraps faster-whisper with
+batched VAD inference and integrates pyannote diarization (wired in a later
+step). The public surface here is unchanged so the rest of the server barely
+changes.
+
 Two modes:
 
 - `transcribe()`  -> task="translate": any language -> English directly with
@@ -9,8 +14,13 @@ Two modes:
   This two-stage path preserves profanity / slang / names far better than
   Whisper's built-in translate.
 
-Loads faster-whisper large-v3 on the GPU (CUDA/float16) when available and
-falls back to CPU/int8 otherwise.
+Loads WhisperX large-v3 on the GPU (CUDA/float16) when available and falls back
+to CPU/int8 otherwise.
+
+KEY WhisperX DIFFERENCE: the `task` ("translate" vs "transcribe") is baked into
+the model at `whisperx.load_model(...)`, NOT passed per-call like
+faster-whisper. Our two engines need different tasks, so the model singleton is
+keyed by **(name, task)** and reloaded when either changes.
 
 CLI:
     python transcribe.py <audio_file> [language]
@@ -28,8 +38,11 @@ from typing import Iterator, Optional, Tuple
 MODEL_NAME = "large-v3"
 
 # Cached singletons so the (expensive) model load happens at most once.
+# The model is keyed by (name, task): WhisperX bakes the task into the loaded
+# model, so a task change forces a reload just like a model-name change does.
 _model = None
 _model_name: Optional[str] = None  # name of the currently loaded model
+_model_task: Optional[str] = None  # task baked into the currently loaded model
 _device: Optional[str] = None
 _compute_type: Optional[str] = None
 
@@ -88,6 +101,11 @@ def get_model_name() -> str:
     return resolve_model("auto")
 
 
+def get_model_task() -> Optional[str]:
+    """Task baked into the currently loaded model, or None if none loaded."""
+    return _model_task
+
+
 def _detect_device() -> Tuple[str, str]:
     """Return (device, compute_type), preferring CUDA/float16."""
     try:
@@ -96,8 +114,8 @@ def _detect_device() -> Tuple[str, str]:
         if torch.cuda.is_available():
             return "cuda", "float16"
     except Exception:
-        # torch may not be installed; faster-whisper can still use CUDA via
-        # ctranslate2. Probe ctranslate2 directly as a fallback.
+        # torch may not be installed; whisperx/faster-whisper can still use CUDA
+        # via ctranslate2. Probe ctranslate2 directly as a fallback.
         try:
             import ctranslate2
 
@@ -108,31 +126,60 @@ def _detect_device() -> Tuple[str, str]:
     return "cpu", "int8"
 
 
-def load_model(name: Optional[str] = None):
-    """Load a named faster-whisper model (singleton) and cache it.
+def _asr_options(
+    beam_size: int = 5,
+    hotwords: Optional[str] = None,
+    initial_prompt: Optional[str] = None,
+) -> dict:
+    """Build the WhisperX `asr_options` dict.
+
+    WhisperX bakes decoding options into the model at load time (unlike
+    faster-whisper, which takes them per `transcribe()` call). beam_size,
+    hotwords and initial_prompt are all valid asr_options keys, so we apply them
+    here. We keep this minimal/robust: only set keys that differ from defaults.
+    """
+    opts: dict = {"beam_size": beam_size}
+    if hotwords:
+        opts["hotwords"] = hotwords
+    if initial_prompt:
+        opts["initial_prompt"] = initial_prompt
+    return opts
+
+
+def load_model(
+    name: Optional[str] = None,
+    task: str = "translate",
+    beam_size: int = 5,
+    hotwords: Optional[str] = None,
+    initial_prompt: Optional[str] = None,
+):
+    """Load a WhisperX model (singleton, keyed by (name, task)) and cache it.
 
     `name` selects the Whisper model tier; when None it is auto-resolved from
-    available VRAM via resolve_model("auto"). The model is a NAMED singleton:
-    re-requesting the already-loaded model is a no-op, but switching to a
-    different tier frees the old model (and the CUDA cache) before loading.
+    available VRAM via resolve_model("auto"). `task` is baked into the WhisperX
+    model ("translate" -> English; "transcribe" -> faithful source language).
 
-    Returns the loaded model. Sets module globals describing the loaded model
-    name, real device, and compute type so the server can report them.
+    The model is a singleton keyed by (name, task): re-requesting the same
+    (name, task) is a no-op, but switching EITHER frees the old model (and the
+    CUDA cache) before loading the new one so we don't hold two large models in
+    VRAM at once.
+
+    Returns the loaded model and sets module globals describing the loaded model
+    name, task, real device, and compute type so the server can report them.
     """
-    global _model, _model_name, _device, _compute_type
+    global _model, _model_name, _model_task, _device, _compute_type
 
-    if name is None:
-        name = resolve_model("auto")
+    name = name or resolve_model("auto")
 
-    # Already loaded AND it's the requested model -> reuse.
-    if _model is not None and _model_name == name:
+    # Already loaded AND it's the requested (name, task) -> reuse.
+    if _model is not None and _model_name == name and _model_task == task:
         return _model
 
-    # A DIFFERENT model is loaded -> free it before loading the new one so we
-    # don't hold two large models in VRAM at once.
+    # A DIFFERENT (name, task) is loaded -> free it before loading the new one.
     if _model is not None:
         _model = None
         _model_name = None
+        _model_task = None
         try:
             import torch
 
@@ -140,21 +187,37 @@ def load_model(name: Optional[str] = None):
         except Exception:
             pass
 
-    from faster_whisper import WhisperModel
+    # Lazy import so `python -m py_compile` (and CPU-only/no-whisperx envs that
+    # never call this) keep working without the package installed.
+    import whisperx
 
     device, compute_type = _detect_device()
+    asr_options = _asr_options(beam_size, hotwords, initial_prompt)
     try:
-        _model = WhisperModel(name, device=device, compute_type=compute_type)
+        _model = whisperx.load_model(
+            name,
+            device=device,
+            compute_type=compute_type,
+            task=task,
+            asr_options=asr_options,
+        )
     except Exception:
-        # CUDA may be advertised but unusable (driver/cuDNN mismatch). Fall
-        # back to CPU so the tool still works, and report the real device.
+        # CUDA may be advertised but unusable (driver/cuDNN mismatch). Fall back
+        # to CPU so the tool still works, and report the real device.
         if device != "cpu":
             device, compute_type = "cpu", "int8"
-            _model = WhisperModel(name, device=device, compute_type=compute_type)
+            _model = whisperx.load_model(
+                name,
+                device=device,
+                compute_type=compute_type,
+                task=task,
+                asr_options=asr_options,
+            )
         else:
             raise
 
     _model_name = name
+    _model_task = task
     _device = device
     _compute_type = compute_type
     return _model
@@ -182,40 +245,56 @@ def transcribe(
     hotwords: Optional[str] = None,
     initial_prompt: Optional[str] = None,
     beam_size: int = 5,
+    model_name: Optional[str] = None,
 ) -> Iterator[Tuple[float, float, str]]:
     """Translate `audio_path` to English, yielding (start, end, text) segments.
 
     Args:
-        audio_path: path to a decodable audio file (faster-whisper uses PyAV).
+        audio_path: path to a decodable audio file (WhisperX uses ffmpeg).
         language: source language ISO code (e.g. "cs") or None to auto-detect.
         time_offset: seconds to ADD to every timestamp. Used when the audio was
             clipped / windowed so timestamps stay absolute to the original video.
         hotwords: optional space-separated hint words biasing recognition
-            (names, game terms) — passed through to faster-whisper.
-        initial_prompt: optional context prompt passed through to faster-whisper.
+            (names, game terms).
+        initial_prompt: optional context prompt.
+        beam_size: beam width; lower => faster first caption, slightly less
+            accurate.
+        model_name: explicit model tier; None auto-resolves from VRAM.
 
-    Yields segments lazily as Whisper produces them.
+    Yields segments lazily from the WhisperX result.
+
+    NOTE: WhisperX bakes `task`, `beam_size`, `hotwords` and `initial_prompt`
+    into the model at LOAD time (via asr_options), not per `transcribe()` call.
+    `hotwords`/`initial_prompt` come from the glossary and are constant for a
+    session, so baking them at first load is correct. `beam_size`, however, the
+    server varies per window (1 at the playhead, 5 ahead). Honoring that here
+    would be ORDER-DEPENDENT — whichever window loads first would bake its beam
+    for the whole session (and the first window is usually the playhead, beam=1,
+    which would silently cap quality everywhere). WhisperX's batched VAD makes
+    the beam=1 latency trick unnecessary, so we always load at the quality beam
+    (5) and ignore the per-call `beam_size`.
     """
-    model = load_model()
+    import whisperx
 
-    kwargs = dict(
+    model = load_model(
+        model_name,
         task="translate",  # any language -> English
-        language=language,  # None => auto-detect
-        beam_size=beam_size,  # lower => faster first caption, slightly less accurate
-        vad_filter=True,  # skip long silences for speed/quality
+        beam_size=5,  # always quality beam; see NOTE (per-call beam ignored)
+        hotwords=hotwords,
+        initial_prompt=initial_prompt,
     )
-    if hotwords:
-        kwargs["hotwords"] = hotwords
-    if initial_prompt:
-        kwargs["initial_prompt"] = initial_prompt
 
-    segments, _info = model.transcribe(audio_path, **kwargs)
+    audio = whisperx.load_audio(audio_path)
+    kwargs = dict(batch_size=16)
+    if language is not None:
+        kwargs["language"] = language
+    result = model.transcribe(audio, **kwargs)
 
-    for seg in segments:
-        text = seg.text.strip()
+    for seg in result.get("segments", []):
+        text = (seg.get("text") or "").strip()
         if not text:
             continue
-        yield (seg.start + time_offset, seg.end + time_offset, text)
+        yield (seg["start"] + time_offset, seg["end"] + time_offset, text)
 
 
 def transcribe_source(
@@ -224,6 +303,7 @@ def transcribe_source(
     time_offset: float = 0.0,
     hotwords: Optional[str] = None,
     initial_prompt: Optional[str] = None,
+    model_name: Optional[str] = None,
 ) -> Iterator[Tuple[float, float, str, str]]:
     """Transcribe `audio_path` in its SOURCE language (no translation).
 
@@ -233,32 +313,33 @@ def transcribe_source(
 
         (start, end, text, lang)
 
-    `vad_filter=True` is always on. `hotwords` / `initial_prompt` are passed
-    through to faster-whisper when provided.
+    `hotwords` / `initial_prompt` are applied via load-time asr_options (see the
+    note in `transcribe()`).
     """
-    model = load_model()
+    import whisperx
 
-    kwargs = dict(
+    model = load_model(
+        model_name,
         task="transcribe",  # faithful source-language text
-        language=language,  # None => auto-detect
         beam_size=5,
-        vad_filter=True,
+        hotwords=hotwords,
+        initial_prompt=initial_prompt,
     )
-    if hotwords:
-        kwargs["hotwords"] = hotwords
-    if initial_prompt:
-        kwargs["initial_prompt"] = initial_prompt
 
-    segments, info = model.transcribe(audio_path, **kwargs)
+    audio = whisperx.load_audio(audio_path)
+    kwargs = dict(batch_size=16)
+    if language is not None:
+        kwargs["language"] = language
+    result = model.transcribe(audio, **kwargs)
 
-    # info.language is the detected (or forced) source language code.
-    detected = getattr(info, "language", None) or language or "unknown"
+    # result["language"] is the detected (or forced) source language code.
+    detected = result.get("language") or language or "unknown"
 
-    for seg in segments:
-        text = seg.text.strip()
+    for seg in result.get("segments", []):
+        text = (seg.get("text") or "").strip()
         if not text:
             continue
-        yield (seg.start + time_offset, seg.end + time_offset, text, detected)
+        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, detected)
 
 
 def _format_ts(seconds: float) -> str:
@@ -277,9 +358,10 @@ def main(argv: list[str]) -> int:
     language = argv[2] if len(argv) > 2 else None
 
     print("Loading model (auto tier) ...", file=sys.stderr)
-    load_model()
+    load_model(task="translate")
     print(
-        f"Using model={get_model_name()} device={get_device()} compute={_compute_type}",
+        f"Using model={get_model_name()} task={get_model_task()} "
+        f"device={get_device()} compute={_compute_type}",
         file=sys.stderr,
     )
 

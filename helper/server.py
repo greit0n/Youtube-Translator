@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import audio
 import cache
 import denoise
+import diarize
 import transcribe
 import translate_llm
 
@@ -142,6 +143,9 @@ class Session:
     current_proc: object = None
     # Rolling (source, english) context fed to the LLM for continuity.
     llm_context: list = field(default_factory=list)
+    # Lazily-created speaker diarization tracker (one per session) — keeps
+    # stable global "Speaker N" labels across windows. None until first use.
+    speaker_tracker: object = None
 
 
 def _kill_proc(proc) -> None:
@@ -292,7 +296,6 @@ async def transcribe_ws(ws: WebSocket) -> None:
             f"preBuffer={pre_buffer} quality={quality} whisper_model={whisper_model} "
             f"clean={clean_audio} diarize={diarize} cookies={audio.cookies_source()}"
         )
-        # TODO(phase E): pass diarize flag to diarization step
 
         sess.current_time = start_time
 
@@ -328,11 +331,16 @@ async def transcribe_ws(ws: WebSocket) -> None:
 
         # The background load picks the auto tier; if this session needs a
         # different model (explicit Quality override, or auto on a machine the
-        # background load mis-sized), switch it now. Reloads are rare.
-        if transcribe.get_model_name() != whisper_model:
+        # background load mis-sized), switch it now. With WhisperX the `task` is
+        # baked into the model, so we ALSO reload when the loaded task differs
+        # from this session's task. Reloads are rare.
+        if (
+            transcribe.get_model_name() != whisper_model
+            or transcribe.get_model_task() != task
+        ):
             await ws.send_json({"type": "status", "message": "switching model"})
             try:
-                await asyncio.to_thread(transcribe.load_model, whisper_model)
+                await asyncio.to_thread(transcribe.load_model, whisper_model, task)
             except Exception as exc:
                 await ws.send_json(
                     {"type": "error", "message": f"model load failed: {exc}"}
@@ -377,6 +385,9 @@ async def transcribe_ws(ws: WebSocket) -> None:
         eff_engine = engine
         # Whether we've already warned the client about the Ollama fallback.
         warned_ollama = False
+        # Whether we've already warned the client that diarization is unavailable
+        # (no HF token / missing libs) — sent at most once per session.
+        warned_diarize = False
 
         # eff_task tracks the task actually written to cache (whisper fallback
         # writes English under "translate", not the source transcript).
@@ -473,6 +484,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                         transcribe.transcribe(
                             clean_wav, language=language, time_offset=cursor,
                             hotwords=hotwords, beam_size=beam,
+                            model_name=whisper_model,
                         ),
                     )
                     segs = [(s, e, t, None) for (s, e, t) in raw]
@@ -480,9 +492,34 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     segs = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe_source(
-                            clean_wav, language=language, time_offset=cursor, hotwords=hotwords
+                            clean_wav, language=language, time_offset=cursor,
+                            hotwords=hotwords, model_name=whisper_model,
                         ),
                     )
+
+                # Optional speaker diarization: tag each segment with a stable
+                # global "Speaker N" label. Must run INSIDE this try (before the
+                # finally below deletes clean_wav) because it needs the audio
+                # file. Heavy -> run on a worker thread. speakers[i] aligns with
+                # segs[i]; on any failure / missing token/libs it stays None.
+                speakers = None
+                if diarize and segs:
+                    if sess.speaker_tracker is None:
+                        sess.speaker_tracker = diarize.SpeakerTracker(
+                            device=transcribe.get_device()
+                        )
+                        if not sess.speaker_tracker.available() and not warned_diarize:
+                            warned_diarize = True
+                            await ws.send_json({
+                                "type": "status",
+                                "message": "diarization unavailable — add a "
+                                "HuggingFace token (see how-to.html)",
+                            })
+                    seg_dicts = [{"start": s, "end": e} for (s, e, t, sl) in segs]
+                    labeled = await asyncio.to_thread(
+                        sess.speaker_tracker.label_segments, clean_wav, seg_dicts, cursor
+                    )
+                    speakers = [d.get("speaker") for d in labeled]
             finally:
                 # Remove the fetched window WAV; also remove the denoised file,
                 # but only when it's a distinct temp file (denoise returns the
@@ -500,7 +537,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
             # Stream (and, for ollama, translate) the window's segments.
             produced: list[dict] = []
             redo = False
-            for start, end, text, src_lang in segs:
+            for i, (start, end, text, src_lang) in enumerate(segs):
                 out_text = text
                 if eff_engine == "ollama":
                     try:
