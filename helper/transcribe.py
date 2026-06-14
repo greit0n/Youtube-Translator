@@ -244,6 +244,33 @@ def is_loaded() -> bool:
     return _model is not None
 
 
+def _segment_language(model, audio, start: float, end: float, fallback: str) -> str:
+    """Detect the spoken language of ONE segment by slicing the window audio.
+
+    WhisperX detects a single language for the whole window, so a mixed window
+    (e.g. a Czech streamer over English game audio) leaks the other language
+    through a window-level filter. Per-segment detection fixes that: it's cheap
+    (one encoder pass on a short slice) and measured ~0.9+ confident even on 6s
+    chunks. Returns `fallback` on any error.
+    """
+    try:
+        sr = 16000
+        # Pad very short slices up to ~2s for a more reliable detection.
+        dur = end - start
+        if dur < 2.0:
+            pad = (2.0 - dur) / 2.0
+            start = max(0.0, start - pad)
+            end = end + pad
+        lo = max(0, int(start * sr))
+        hi = min(len(audio), int(end * sr))
+        if hi - lo < int(0.4 * sr):
+            return fallback
+        lang, _prob, _all = model.model.detect_language(audio=audio[lo:hi])
+        return lang or fallback
+    except Exception:
+        return fallback
+
+
 def transcribe(
     audio_path: str,
     language: Optional[str] = None,
@@ -252,6 +279,7 @@ def transcribe(
     initial_prompt: Optional[str] = None,
     beam_size: int = 5,
     model_name: Optional[str] = None,
+    detect_per_segment: bool = False,
 ) -> Iterator[Tuple[float, float, str, str]]:
     """Translate `audio_path` to English, yielding (start, end, text, detected)
     segments where `detected` is the auto-detected SOURCE language code (so the
@@ -311,7 +339,14 @@ def transcribe(
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, detected)
+        # Per-segment language so a mixed window can be filtered line-by-line
+        # (e.g. keep Czech speech, drop the English game audio in the same window).
+        seg_lang = (
+            _segment_language(model, audio, seg["start"], seg["end"], detected)
+            if detect_per_segment
+            else detected
+        )
+        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, seg_lang)
 
 
 def transcribe_source(
@@ -321,6 +356,7 @@ def transcribe_source(
     hotwords: Optional[str] = None,
     initial_prompt: Optional[str] = None,
     model_name: Optional[str] = None,
+    detect_per_segment: bool = False,
 ) -> Iterator[Tuple[float, float, str, str]]:
     """Transcribe `audio_path` in its SOURCE language (no translation).
 
@@ -359,7 +395,15 @@ def transcribe_source(
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, detected)
+        # When a forced `language` is set we trust it; otherwise optionally
+        # detect per segment so a mixed window can be filtered line-by-line.
+        if language is not None:
+            seg_lang = language
+        elif detect_per_segment:
+            seg_lang = _segment_language(model, audio, seg["start"], seg["end"], detected)
+        else:
+            seg_lang = detected
+        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, seg_lang)
 
 
 def _format_ts(seconds: float) -> str:

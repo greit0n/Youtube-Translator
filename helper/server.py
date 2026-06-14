@@ -493,6 +493,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                             clean_wav, time_offset=cursor,
                             hotwords=hotwords, beam_size=beam,
                             model_name=whisper_model,
+                            detect_per_segment=bool(language),
                         ),
                     )
                 else:
@@ -502,22 +503,23 @@ async def transcribe_ws(ws: WebSocket) -> None:
                         transcribe.transcribe_source(
                             clean_wav, language=None, time_offset=cursor,
                             hotwords=hotwords, model_name=whisper_model,
+                            detect_per_segment=bool(language),
                         ),
                     )
 
                 # Language filter: when the user picked a specific spoken language
-                # (not "auto"), only keep windows actually DETECTED as that
-                # language — e.g. subtitle the Czech speaker but show nothing while
-                # the (English) game audio plays. segs carry the detected language
-                # as the 4th tuple element; detection is per-window.
+                # (not "auto"), keep only the SEGMENTS actually detected as that
+                # language — e.g. subtitle the Czech streamer but drop the English
+                # game audio EVEN WITHIN THE SAME WINDOW. Each seg carries its own
+                # detected language (4th tuple element) via per-segment detection.
                 if language and segs:
-                    detected = segs[0][3]
-                    if detected and detected != language:
+                    before = len(segs)
+                    segs = [s for s in segs if (s[3] or language) == language]
+                    if len(segs) != before:
                         _log(
                             f"window [{cursor:.1f},{window_end:.1f}] "
-                            f"detected={detected} != filter={language} -> skip"
+                            f"lang-filter={language}: kept {len(segs)}/{before} segs"
                         )
-                        segs = []
 
                 # Optional speaker diarization: tag each segment with a stable
                 # global "Speaker N" label. Must run INSIDE this try (before the
