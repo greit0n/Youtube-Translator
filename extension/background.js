@@ -24,7 +24,11 @@ const DEFAULT_SETTINGS = {
   // Whether to run speaker diarization on the helper side.
   diarize: false,
   // Multiline glossary: one entry per line, "term" or "term = preferred". Sent to the helper.
-  glossary: ""
+  glossary: "",
+  // Display name for the enrolled "your voice" speaker (overrides the enroll file name).
+  highlightName: "",
+  // Colour painted on the enrolled speaker's captions (default red).
+  highlightColor: "#ff3b30"
 };
 
 // On install / update, fill in any missing settings without clobbering

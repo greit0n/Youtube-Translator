@@ -4,6 +4,10 @@ cookies.txt
 helper/hf_token.txt
 hf_token.txt
 
+# Enrolled "your voice" reference clips — personal audio, never commit.
+helper/enroll/*
+!helper/enroll/.gitkeep
+
 # Helper runtime artifacts
 helper/*.log
 helper/cache/

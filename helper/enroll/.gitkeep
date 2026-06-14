@@ -1,0 +1,5 @@
+# Drop a 1–3 min audio clip of ONE person here (e.g. Agraelus.wav / .mp3).
+# The filename (sans extension) becomes that speaker's name. With Speaker
+# labels enabled, that voice is detected via a pyannote voiceprint and painted
+# the colour chosen in the extension popup ("Your voice — colour"). No training.
+# These clips are personal audio and are gitignored.

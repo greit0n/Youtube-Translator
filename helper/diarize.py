@@ -81,10 +81,42 @@ _warned_no_libs: bool = False
 # 0.65 is a sensible middle ground for pyannote/embedding in typical content.
 SIMILARITY_THRESHOLD: float = 0.65
 
+# --- Voice enrollment ------------------------------------------------------
+# Drop an audio clip of a single person (e.g. 1-3 min of just them talking) into
+# helper/enroll/ and that voice gets a FIXED label (the filename, sans extension)
+# and is flagged `enrolled` so the extension can paint it a chosen colour — even
+# among several speakers. No training: we compute one pyannote/embedding
+# voiceprint from the clip and cosine-match every detected speaker against it.
+ENROLL_DIR: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "enroll")
+ENROLL_EXTS = (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma", ".mp4", ".webm")
+# Enrolled references are clean, single-speaker recordings, while in-video turns
+# are short and noisy, so the cross-recording cosine runs lower than the
+# window-to-window number. A slightly looser threshold catches the enrolled
+# voice without (in practice) grabbing other speakers, who sit well below ~0.45.
+ENROLL_THRESHOLD: float = 0.55
+
 
 # ---------------------------------------------------------------------------
 # Tiny numpy-free cosine similarity (avoids a hard numpy import at module level)
 # ---------------------------------------------------------------------------
+
+def enrolled_names() -> list[str]:
+    """Names of voices enrolled in ENROLL_DIR (filenames, sans extension).
+
+    Cheap directory listing — no model load — so /health can confirm the user's
+    clip was found without spinning up diarization.
+    """
+    try:
+        if not os.path.isdir(ENROLL_DIR):
+            return []
+        return sorted(
+            os.path.splitext(f)[0]
+            for f in os.listdir(ENROLL_DIR)
+            if os.path.splitext(f)[1].lower() in ENROLL_EXTS
+        )
+    except OSError:
+        return []
+
 
 def _cosine_similarity(a, b) -> float:
     """Cosine similarity between two 1-D numeric sequences. Returns float in [-1, 1]."""
@@ -273,8 +305,65 @@ class SpeakerTracker:
             # Diarization still works, just without cross-window stability;
             # keep self._embedding = None as the signal.
 
+        # --- load enrolled voiceprints (optional) ------------------------
+        # Needs the embedding model; silently skipped if it failed to load or
+        # the enroll/ dir is empty/absent. Pre-seeds the speaker registry so the
+        # enrolled voice is matched (and flagged) from the very first window.
+        try:
+            self._load_enrollments()
+        except Exception as exc:
+            _log(f"diarize: enrollment load failed (continuing without): {exc}")
+
         self._load_ok = True
         return True
+
+    def _load_enrollments(self) -> None:
+        """Scan ENROLL_DIR and pre-seed the registry with locked reference voices.
+
+        Each audio file becomes one enrolled speaker whose label is the filename
+        (without extension). Its centroid is a whole-file voiceprint and is
+        LOCKED (never drifts via the running-mean update) so the reference stays
+        clean across the session.
+        """
+        if self._embedding is None:
+            return
+        if not os.path.isdir(ENROLL_DIR):
+            return
+
+        files = sorted(
+            f for f in os.listdir(ENROLL_DIR)
+            if os.path.splitext(f)[1].lower() in ENROLL_EXTS
+        )
+        if not files:
+            return
+
+        for fname in files:
+            name = os.path.splitext(fname)[0]
+            path = os.path.join(ENROLL_DIR, fname)
+            emb = self._embed_whole(path)
+            if emb is None:
+                _log(f"diarize: enrollment '{name}' skipped (no embedding)")
+                continue
+            self._speakers.append({
+                "label": name,
+                "centroid": emb,
+                "count": 1,
+                "enrolled": True,   # flag segments + paint a chosen colour
+                "locked": True,     # don't drift the clean reference
+            })
+            _log(f"diarize: enrolled voice '{name}' from {fname}")
+
+    def _embed_whole(self, audio_path: str):
+        """Whole-file voiceprint (list[float]) for an enrollment clip, or None."""
+        if self._embedding is None:
+            return None
+        try:
+            # window="whole" -> a single embedding vector over the entire file.
+            emb_array = self._embedding({"uri": audio_path, "audio": audio_path})
+            return list(float(x) for x in emb_array.flatten())
+        except Exception as exc:
+            _log(f"diarize: whole-file embedding failed for {audio_path}: {exc}")
+            return None
 
     def _label_segments_inner(
         self,
@@ -311,15 +400,22 @@ class SpeakerTracker:
             if emb is not None and self._speakers:
                 # Find best cosine match among known global speakers
                 best_idx, best_sim = _best_match(emb, self._speakers)
-                if best_sim >= SIMILARITY_THRESHOLD:
-                    # Reuse existing global speaker and update centroid
-                    global_label = self._speakers[best_idx]["label"]
-                    _update_centroid(self._speakers[best_idx], emb)
+                matched = self._speakers[best_idx]
+                # Enrolled references match on a looser threshold (clean clip vs
+                # noisy in-video turn); cross-window speakers use the strict one.
+                thr = ENROLL_THRESHOLD if matched.get("enrolled") else SIMILARITY_THRESHOLD
+                if best_sim >= thr:
+                    global_label = matched["label"]
+                    # Don't drift a locked enrolled reference; update others.
+                    if not matched.get("locked"):
+                        _update_centroid(matched, emb)
                     local_to_global[local_label] = global_label
                     continue
 
-            # No match (or no embedding / no speakers yet) -> new global speaker
-            n = len(self._speakers) + 1
+            # No match (or no embedding / no speakers yet) -> new global speaker.
+            # Number only the AUTO speakers so enrolled names don't shift the
+            # "Speaker N" sequence.
+            n = sum(1 for s in self._speakers if not s.get("enrolled")) + 1
             global_label = f"Speaker {n}"
             entry: dict = {
                 "label": global_label,
@@ -341,12 +437,15 @@ class SpeakerTracker:
             )
 
         # --- 5. Assign each segment the label with max temporal overlap --
+        enrolled_labels = {s["label"] for s in self._speakers if s.get("enrolled")}
         out: list[dict] = []
         for seg in segments:
             label = _assign_label(seg, abs_turns)
             new_seg = dict(seg)
             if label is not None:
                 new_seg["speaker"] = label
+                if label in enrolled_labels:
+                    new_seg["enrolled"] = True
             out.append(new_seg)
 
         return out
@@ -367,24 +466,39 @@ class SpeakerTracker:
             crop_start = longest["start"]
             crop_end = longest["end"]
 
-            # Inference accepts a dict with 'uri' + 'audio', or a file path with
-            # an optional 'channel' / 'start' / 'duration'.  Use the file-dict form.
+            # The embedding model needs a minimum amount of audio (its conv
+            # kernel spans ~7 frames); a sub-second turn raises "Kernel size
+            # can't be greater than input". Pad short crops up to ~1s; if even
+            # the whole turn is tiny, skip (too little signal to ID anyway).
+            MIN_DUR = 1.0
+            if crop_end - crop_start < MIN_DUR:
+                pad = (MIN_DUR - (crop_end - crop_start)) / 2.0
+                crop_start = max(0.0, crop_start - pad)
+                crop_end = crop_end + pad
+            if crop_end - crop_start < 0.4:
+                return None
+
+            # For a window="whole" Inference, the per-excerpt embedding is taken
+            # via .crop(file, Segment) — calling the model directly with an
+            # `excerpt=` kwarg is NOT supported (raises TypeError) and silently
+            # disabled cross-window tracking. .crop returns one vector per chunk.
             from pyannote.core import Segment
 
-            emb_array = self._embedding(
+            emb_array = self._embedding.crop(
                 {"uri": wav_path, "audio": wav_path},
-                excerpt=Segment(crop_start, crop_end),
+                Segment(crop_start, crop_end),
             )
 
             # Result is a numpy array; convert to plain list for storage.
-            return list(float(x) for x in emb_array.flatten())
+            import numpy as _np
+            return list(float(x) for x in _np.asarray(emb_array).flatten())
         except Exception as exc:
             _log(f"diarize: embedding computation failed: {exc}")
             return None
 
     def reset(self) -> None:
-        """Clear the global speaker registry (call between unrelated sessions)."""
-        self._speakers = []
+        """Clear AUTO-detected speakers; keep enrolled reference voiceprints."""
+        self._speakers = [s for s in self._speakers if s.get("enrolled")]
 
 
 # ---------------------------------------------------------------------------

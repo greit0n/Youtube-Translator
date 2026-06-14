@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import audio
 import cache
 import denoise
+import diarize as diarize_mod
 from diarize import SpeakerTracker
 import transcribe
 import translate_llm
@@ -103,6 +104,7 @@ async def health() -> dict:
         "device": transcribe.get_device(),
         "ollama": ollama_up,
         "cookies": audio.cookies_source() is not None,
+        "enrolled": diarize_mod.enrolled_names(),
     }
 
 
@@ -316,14 +318,17 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     {"type": "progress", "start": iv[0], "until": iv[1]}
                 )
             for seg in cache.filter_from(cached["segments"], start_time):
-                await ws.send_json(
-                    {
-                        "type": "segment",
-                        "start": seg["start"],
-                        "end": seg["end"],
-                        "text": seg["text"],
-                    }
-                )
+                frame = {
+                    "type": "segment",
+                    "start": seg["start"],
+                    "end": seg["end"],
+                    "text": seg["text"],
+                }
+                if seg.get("speaker"):
+                    frame["speaker"] = seg["speaker"]
+                if seg.get("enrolled"):
+                    frame["enrolled"] = True
+                await ws.send_json(frame)
 
         # --- Make sure the Whisper model is ready --------------------------
         if not await _wait_for_model(ws):
@@ -520,6 +525,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 # file. Heavy -> run on a worker thread. speakers[i] aligns with
                 # segs[i]; on any failure / missing token/libs it stays None.
                 speakers = None
+                enrolled_flags = None
                 if diarize and segs:
                     if sess.speaker_tracker is None:
                         sess.speaker_tracker = SpeakerTracker(
@@ -537,6 +543,9 @@ async def transcribe_ws(ws: WebSocket) -> None:
                         sess.speaker_tracker.label_segments, clean_wav, seg_dicts, cursor
                     )
                     speakers = [d.get("speaker") for d in labeled]
+                    # Parallel list: True where the speaker is an enrolled voice
+                    # (lets the client paint "your voice" a fixed colour).
+                    enrolled_flags = [bool(d.get("enrolled")) for d in labeled]
             finally:
                 # Remove the fetched window WAV; also remove the denoised file,
                 # but only when it's a distinct temp file (denoise returns the
@@ -584,6 +593,8 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 sp = speakers[i] if speakers else None
                 if sp:
                     seg["speaker"] = sp
+                    if enrolled_flags and enrolled_flags[i]:
+                        seg["enrolled"] = True
                 produced.append(seg)
                 await ws.send_json({"type": "segment", **seg})
 

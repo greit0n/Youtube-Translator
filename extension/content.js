@@ -31,7 +31,9 @@
     quality: "auto", // "auto" | "max" | "balanced" | "lite"
     cleanAudio: "off", // "off" | "light" | "music"
     diarize: false, // speaker diarization (server-side)
-    glossary: "" // multiline: "term" or "term = preferred" per line
+    glossary: "", // multiline: "term" or "term = preferred" per line
+    highlightName: "", // display name for the enrolled "your voice" speaker
+    highlightColor: "#ff3b30" // colour painted on the enrolled speaker (default red)
   };
 
   // How often we report playback position to the helper so it can keep its
@@ -202,7 +204,7 @@
   // When `speaker` is a non-empty label, prepend a small colored speaker chip
   // and tint the caption text with that speaker's stable color. Built entirely
   // with createElement + textContent (never innerHTML) for safety.
-  function renderCaption(text, speaker) {
+  function renderCaption(text, speaker, enrolled) {
     if (!captionEl) return;
     captionEl.classList.remove("ytx-error", "ytx-status");
     delete captionEl.dataset.ytxMode;
@@ -211,12 +213,19 @@
     captionEl.style.color = ""; // drop any prior speaker tint
 
     const t = text || "";
-    const color = speaker ? colorForSpeaker(speaker) : null;
-    if (t && color) {
+    // An enrolled "your voice" speaker gets a FIXED chosen colour + optional
+    // display-name override; everyone else gets their stable palette colour.
+    let label = speaker;
+    let color = speaker ? colorForSpeaker(speaker) : null;
+    if (enrolled) {
+      color = settings.highlightColor || "#ff3b30";
+      if (settings.highlightName) label = settings.highlightName;
+    }
+    if (t && label && color) {
       captionEl.textContent = ""; // replaces any .ytx-loader / prior content
       const chip = document.createElement("span");
       chip.className = "ytx-speaker";
-      chip.textContent = speaker;
+      chip.textContent = label;
       chip.style.color = color;
       captionEl.appendChild(chip);
       captionEl.appendChild(document.createTextNode(t));
@@ -589,7 +598,8 @@
             start: msg.start,
             end: msg.end,
             text: msg.text,
-            speaker: typeof msg.speaker === "string" ? msg.speaker : null
+            speaker: typeof msg.speaker === "string" ? msg.speaker : null,
+            enrolled: msg.enrolled === true
           });
           // Show the new segment if it covers now (else status stays).
           updateCaptionForCurrentTime(s);
@@ -749,7 +759,7 @@
       // and so a loader/status frame (which clears ytxCap) always re-renders.
       const key = (seg.speaker || "") + " " + seg.text;
       if (captionEl.dataset.ytxCap !== key || captionEl.classList.contains("ytx-status")) {
-        renderCaption(seg.text, seg.speaker);
+        renderCaption(seg.text, seg.speaker, seg.enrolled);
         captionEl.dataset.ytxCap = key;
       }
       return;
@@ -936,7 +946,7 @@
   function loadSettingsThenInit() {
     chrome.storage.sync.get(
       ["enabled", "language", "fontSize", "engine", "model", "preBuffer", "autoPause",
-       "quality", "cleanAudio", "diarize", "glossary"],
+       "quality", "cleanAudio", "diarize", "glossary", "highlightName", "highlightColor"],
       (stored) => {
       settings.enabled = stored.enabled !== false; // default true
       settings.language =
@@ -950,6 +960,8 @@
       settings.cleanAudio = stored.cleanAudio || "off";
       settings.diarize = stored.diarize === true;
       settings.glossary = stored.glossary || "";
+      settings.highlightName = stored.highlightName || "";
+      settings.highlightColor = stored.highlightColor || "#ff3b30";
       if (settings.enabled) {
         startSession();
       }
@@ -1012,6 +1024,16 @@
     if ("glossary" in changes) {
       settings.glossary = changes.glossary.newValue || "";
       needsReinit = true; // glossary is part of the start message → reconnect
+    }
+    if ("highlightName" in changes || "highlightColor" in changes) {
+      if ("highlightName" in changes)
+        settings.highlightName = changes.highlightName.newValue || "";
+      if ("highlightColor" in changes)
+        settings.highlightColor = changes.highlightColor.newValue || "#ff3b30";
+      // Client-only display tweak — repaint the current caption, no reconnect.
+      // Clear the idempotency key so the same line re-renders with new colour/name.
+      if (captionEl) delete captionEl.dataset.ytxCap;
+      if (session) updateCaptionForCurrentTime(session);
     }
 
     if (!settings.enabled) {

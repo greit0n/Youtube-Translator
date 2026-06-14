@@ -20,7 +20,9 @@ const DEFAULTS = {
   quality: "auto", // "auto" | "max" | "balanced" | "lite"
   cleanAudio: "off", // "off" | "light" | "music"
   diarize: false, // speaker diarization
-  glossary: "" // multiline: "term" or "term = preferred" per line
+  glossary: "", // multiline: "term" or "term = preferred" per line
+  highlightName: "", // display name for the enrolled "your voice" speaker
+  highlightColor: "#ff3b30" // colour for the enrolled speaker (default red)
 };
 
 // DOM references.
@@ -36,6 +38,8 @@ const qualityEl = document.getElementById("quality");
 const cleanAudioEl = document.getElementById("cleanAudio");
 const diarizeEl = document.getElementById("diarize");
 const glossaryEl = document.getElementById("glossary");
+const highlightNameEl = document.getElementById("highlightName");
+const highlightColorEl = document.getElementById("highlightColor");
 const statusDot = document.getElementById("statusDot");
 const statusTitle = document.getElementById("statusTitle");
 const statusDetail = document.getElementById("statusDetail");
@@ -60,6 +64,8 @@ function loadSettings() {
     const cleanAudio = stored.cleanAudio || "off";
     const diarize = stored.diarize === true;
     const glossary = stored.glossary || "";
+    const highlightName = stored.highlightName || "";
+    const highlightColor = stored.highlightColor || "#ff3b30";
 
     enabledEl.checked = enabled;
     // language null -> "auto" option value
@@ -72,6 +78,8 @@ function loadSettings() {
     cleanAudioEl.value = cleanAudio;
     diarizeEl.checked = diarize;
     glossaryEl.value = glossary;
+    highlightNameEl.value = highlightName;
+    highlightColorEl.value = highlightColor;
 
     // Remember the desired model so it can be selected after /models loads.
     desiredModel = model;
@@ -145,6 +153,19 @@ glossaryEl.addEventListener("input", () => {
   glossarySaveTimer = setTimeout(() => {
     save("glossary", glossaryEl.value);
   }, 400);
+});
+
+// "Your voice" name — debounce like the glossary (fires per keystroke).
+let highlightNameSaveTimer = null;
+highlightNameEl.addEventListener("input", () => {
+  if (highlightNameSaveTimer) clearTimeout(highlightNameSaveTimer);
+  highlightNameSaveTimer = setTimeout(() => {
+    save("highlightName", highlightNameEl.value.trim());
+  }, 400);
+});
+
+highlightColorEl.addEventListener("input", () => {
+  save("highlightColor", highlightColorEl.value);
 });
 
 // ---- Ollama model list ---------------------------------------------------
@@ -238,10 +259,14 @@ async function checkHealth() {
       // Show Ollama availability alongside the existing device/model info.
       const ollama = data.ollama ? "Ollama: ready" : "Ollama: ▢";
       const cookies = data.cookies ? "Cookies: ✓" : "Cookies: ▢";
+      // Confirm any enrolled "your voice" clips the helper found.
+      const enrolled = Array.isArray(data.enrolled) && data.enrolled.length
+        ? ` · Voice: ${data.enrolled.join(", ")}`
+        : "";
       setStatus(
         "connected",
         "Connected",
-        `Device: ${device} · ${whisper}${model} · ${ollama} · ${cookies}`
+        `Device: ${device} · ${whisper}${model} · ${ollama} · ${cookies}${enrolled}`
       );
     } else {
       setStatus("disconnected", "Helper responded oddly", "Unexpected /health payload");

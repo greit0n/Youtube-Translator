@@ -37,6 +37,12 @@ from typing import Iterator, Optional, Tuple
 # resolve_model() can pick a smaller tier when VRAM is tight or the user asks.
 MODEL_NAME = "large-v3"
 
+# Max length (seconds) of a single VAD-merged chunk -> roughly the length of one
+# on-screen caption. WhisperX defaults this to 30s, which merges ~20s of speech
+# into ONE giant segment that fills the whole screen. faster-whisper used to emit
+# sentence-sized segments; a small chunk_size restores that bite-sized feel.
+CHUNK_SIZE = 6.0
+
 # Cached singletons so the (expensive) model load happens at most once.
 # The model is keyed by (name, task): WhisperX bakes the task into the loaded
 # model, so a task change forces a reload just like a model-name change does.
@@ -297,7 +303,7 @@ def transcribe(
     # uses the detected language (4th tuple element) to FILTER windows by spoken
     # language (e.g. subtitle Czech, skip English game audio). Forcing would make
     # whisper transcribe English-as-Czech garbage instead of detecting "en".
-    kwargs = dict(batch_size=16, task="translate")
+    kwargs = dict(batch_size=16, task="translate", chunk_size=CHUNK_SIZE)
     result = model.transcribe(audio, **kwargs)
 
     detected = result.get("language") or language or "unknown"
@@ -341,7 +347,7 @@ def transcribe_source(
     # Pass task explicitly (see note in transcribe()): omitting it makes whisperx
     # default to "transcribe" — which is what we want here, but be explicit so the
     # behavior can't silently change.
-    kwargs = dict(batch_size=16, task="transcribe")
+    kwargs = dict(batch_size=16, task="transcribe", chunk_size=CHUNK_SIZE)
     if language is not None:
         kwargs["language"] = language
     result = model.transcribe(audio, **kwargs)
