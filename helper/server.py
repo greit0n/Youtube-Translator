@@ -568,10 +568,20 @@ async def transcribe_ws(ws: WebSocket) -> None:
             # music) with speaker identity. Filter segs/speakers/enrolled_flags
             # together so the streaming loop, Ollama translate, and cache all see
             # just the kept lines.
-            if enrolled_only:
-                if not diarize_mod.enrolled_names() or enrolled_flags is None:
-                    # No enrolled voice or diarization unavailable -> can't filter
-                    # safely (would blank the screen). Warn once, show everyone.
+            # When True, enrolled-only was requested but could NOT be honored this
+            # window (no usable voiceprint / diarization down) -> we showed all
+            # speakers, so we must NOT persist (else the 'eo' cache is poisoned
+            # with unfiltered segments and replays everyone next session).
+            eo_filter_failed = False
+            if enrolled_only and segs:
+                tracker = sess.speaker_tracker
+                if enrolled_flags is None or tracker is None or not tracker.has_enrolled():
+                    # No USABLE enrolled voiceprint (missing clip / embedding model
+                    # failed / diarization unavailable) -> filtering would blank the
+                    # screen. Warn once and show everyone. NB: a window that simply
+                    # has no enrolled SPEECH is NOT this case (has_enrolled() is
+                    # True), and the else-branch correctly empties it.
+                    eo_filter_failed = True
                     if not warned_eo:
                         warned_eo = True
                         await ws.send_json({
@@ -641,12 +651,18 @@ async def transcribe_ws(ws: WebSocket) -> None:
             await ws.send_json(
                 {"type": "progress", "start": cursor, "until": window_end}
             )
-            await asyncio.to_thread(
-                cache.append,
-                video_id, produced, [cursor, window_end],
-                language, eff_task, eff_engine, model,
-                variant,
-            )
+            # Skip persistence when enrolled-only couldn't be honored this window:
+            # caching the unfiltered segments under the 'eo' variant would poison
+            # the cache (replays all speakers next session). Let it re-transcribe
+            # once enrollment works. The in-memory `covered` still advanced above,
+            # so this session won't loop on the window.
+            if not eo_filter_failed:
+                await asyncio.to_thread(
+                    cache.append,
+                    video_id, produced, [cursor, window_end],
+                    language, eff_task, eff_engine, model,
+                    variant,
+                )
 
         await ws.send_json({"type": "done"})
 

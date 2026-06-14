@@ -120,17 +120,24 @@ const DEFAULT_SETTINGS = {
 // values the user may have already set.
 chrome.runtime.onInstalled.addListener(async () => {
   try {
-    const current = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+    const current = await chrome.storage.sync.get([
+      ...Object.keys(DEFAULT_SETTINGS),
+      "glossarySeeded"
+    ]);
     const merged = {};
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       merged[key] = key in current ? current[key] : value;
     }
-    // Seed the starter glossary when the user hasn't set one (empty/whitespace
-    // counts as unset). This is what delivers the shipped default to EXISTING
-    // installs on reload — a plain key-present check would keep their old "".
-    // A non-empty glossary the user has edited is left untouched.
-    if (typeof merged.glossary !== "string" || merged.glossary.trim() === "") {
-      merged.glossary = DEFAULT_SETTINGS.glossary;
+    // Seed the starter glossary EXACTLY ONCE (first run of a build that knows
+    // the sentinel). This delivers the shipped default to EXISTING installs whose
+    // stored glossary is still empty, while RESPECTING a later deliberate clear:
+    // onInstalled also fires on every reload/update, so a plain empty-check would
+    // keep re-adding the glossary the user just cleared.
+    if (!current.glossarySeeded) {
+      if (typeof merged.glossary !== "string" || merged.glossary.trim() === "") {
+        merged.glossary = DEFAULT_SETTINGS.glossary;
+      }
+      merged.glossarySeeded = true;
     }
     await chrome.storage.sync.set(merged);
   } catch (err) {

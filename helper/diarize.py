@@ -376,9 +376,20 @@ class SpeakerTracker:
             if not embs:
                 _log(f"diarize: enrollment '{name}' skipped (no embedding)")
                 continue
-            # Element-wise mean across this name's clips -> the centroid.
-            n = len(embs)
-            mean_emb = [sum(vals) / n for vals in zip(*embs)]
+            # Element-wise mean across this name's clips -> the centroid. Guard
+            # against mismatched dims (zip() would silently truncate to the
+            # shortest, yielding a wrong-norm centroid that never matches): if the
+            # clips disagree on length, fall back to the first clip's embedding.
+            dims = {len(e) for e in embs}
+            if len(dims) > 1:
+                _log(
+                    f"diarize: enrollment '{name}' clips have mismatched embedding "
+                    f"dims {sorted(dims)} — using the first clip only"
+                )
+                mean_emb = list(embs[0])
+            else:
+                n = len(embs)
+                mean_emb = [sum(vals) / n for vals in zip(*embs)]
             self._speakers.append({
                 "label": name,
                 "centroid": mean_emb,
@@ -561,6 +572,17 @@ class SpeakerTracker:
         except Exception as exc:
             _log(f"diarize: embedding computation failed: {exc}")
             return None
+
+    def has_enrolled(self) -> bool:
+        """True if at least one USABLE enrolled voiceprint is loaded.
+
+        Distinguishes a real, embeddable enrollment (a clip that produced a
+        non-empty centroid) from merely having files on disk that failed to
+        embed — or the embedding model never loading. The enrolled-only filter
+        uses this to decide whether dropping non-enrolled segments is safe, vs a
+        systemic failure where it should show everyone instead of blanking.
+        """
+        return any(s.get("enrolled") and s.get("centroid") for s in self._speakers)
 
     def reset(self) -> None:
         """Clear AUTO-detected speakers; keep enrolled reference voiceprints."""

@@ -482,7 +482,10 @@
           pairs.push({ term, preferred });
         }
       } else {
+        // Bare term (no "="): bias Whisper recognition via hotwords AND tell the
+        // LLM to keep it as-is (proper noun) via an empty-preferred glossary entry.
         terms.push(line);
+        pairs.push({ term: line, preferred: "" });
       }
     }
     return {
@@ -759,7 +762,7 @@
     if (seg) {
       // Idempotency key includes the speaker so a chip/tint change re-renders,
       // and so a loader/status frame (which clears ytxCap) always re-renders.
-      const key = (seg.speaker || "") + " " + seg.text;
+      const key = (seg.enrolled ? "1|" : "0|") + (seg.speaker || "") + " " + seg.text;
       if (captionEl.dataset.ytxCap !== key || captionEl.classList.contains("ytx-status")) {
         renderCaption(seg.text, seg.speaker, seg.enrolled);
         captionEl.dataset.ytxCap = key;
@@ -954,7 +957,7 @@
       settings.language =
         stored.language === undefined ? null : stored.language;
       settings.fontSize = stored.fontSize || "medium";
-      settings.engine = stored.engine === "ollama" ? "ollama" : "whisper";
+      settings.engine = stored.engine === "whisper" ? "whisper" : "ollama";
       settings.model = stored.model || "gemma2:9b";
       settings.preBuffer = stored.preBuffer !== false; // default true
       settings.autoPause = stored.autoPause !== false; // default true

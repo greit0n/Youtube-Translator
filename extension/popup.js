@@ -59,7 +59,7 @@ function loadSettings() {
     const language =
       stored.language === undefined ? DEFAULTS.language : stored.language;
     const fontSize = stored.fontSize || DEFAULTS.fontSize;
-    const engine = stored.engine === "ollama" ? "ollama" : "whisper";
+    const engine = stored.engine === "whisper" ? "whisper" : "ollama";
     const model = stored.model || DEFAULTS.model;
     const preBuffer = stored.preBuffer !== false; // default true
     const autoPause = stored.autoPause !== false; // default true
