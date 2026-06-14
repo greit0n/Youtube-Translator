@@ -13,13 +13,14 @@ const DEFAULTS = {
   enabled: true,
   language: null, // null = auto-detect
   fontSize: "medium",
-  engine: "whisper", // "whisper" | "ollama"
-  model: "qwen2.5:7b", // Ollama chat model
+  engine: "ollama", // "whisper" | "ollama"
+  model: "gemma2:9b", // Ollama chat model
   preBuffer: true,
   autoPause: true, // pause until subtitles for "now" are ready
   quality: "auto", // "auto" | "max" | "balanced" | "lite"
   cleanAudio: "off", // "off" | "light" | "music"
   diarize: false, // speaker diarization
+  enrolledOnly: false, // show only the enrolled "your voice" speaker
   glossary: "", // multiline: "term" or "term = preferred" per line
   highlightName: "", // display name for the enrolled "your voice" speaker
   highlightColor: "#ff3b30" // colour for the enrolled speaker (default red)
@@ -37,6 +38,7 @@ const autoPauseEl = document.getElementById("autoPause");
 const qualityEl = document.getElementById("quality");
 const cleanAudioEl = document.getElementById("cleanAudio");
 const diarizeEl = document.getElementById("diarize");
+const enrolledOnlyEl = document.getElementById("enrolledOnly");
 const glossaryEl = document.getElementById("glossary");
 const highlightNameEl = document.getElementById("highlightName");
 const highlightColorEl = document.getElementById("highlightColor");
@@ -64,6 +66,7 @@ function loadSettings() {
     const quality = stored.quality || "auto";
     const cleanAudio = stored.cleanAudio || "off";
     const diarize = stored.diarize === true;
+    const enrolledOnly = stored.enrolledOnly === true;
     const glossary = stored.glossary || "";
     const highlightName = stored.highlightName || "";
     const highlightColor = stored.highlightColor || "#ff3b30";
@@ -78,6 +81,7 @@ function loadSettings() {
     qualityEl.value = quality;
     cleanAudioEl.value = cleanAudio;
     diarizeEl.checked = diarize;
+    enrolledOnlyEl.checked = enrolledOnly;
     glossaryEl.value = glossary;
     highlightNameEl.value = highlightName;
     highlightColorEl.value = highlightColor;
@@ -144,6 +148,10 @@ cleanAudioEl.addEventListener("change", () => {
 
 diarizeEl.addEventListener("change", () => {
   save("diarize", diarizeEl.checked);
+});
+
+enrolledOnlyEl.addEventListener("change", () => {
+  save("enrolledOnly", enrolledOnlyEl.checked);
 });
 
 // Glossary textarea fires many input events while typing — debounce the save

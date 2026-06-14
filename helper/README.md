@@ -60,6 +60,16 @@ aren't present they simply pass through and never raise:
   token (no extra pip install beyond core WhisperX). When on, segments may carry
   a `speaker` field.
 
+The `enrolledOnly` setting ("only my voice") narrows output to **just the
+enrolled speaker** — it drops game audio and every other speaker, keeping only
+lines matched to the voice clip(s) in `helper/enroll/`. It **implies
+diarization** (turning it on automatically enables the diarize path), so it has
+the same requirements as Speaker labels: an enroll clip in `helper/enroll/` plus
+a HuggingFace token. If either is missing it **degrades gracefully** — the helper
+shows all speakers and emits a `status` warning instead of erroring. Like the
+other feature toggles it folds into the cache `variant`, so flipping it caches
+separately.
+
 The `glossary` setting (array of `{term, preferred}`) is used two ways: the
 terms bias Whisper recognition as **hotwords**, and they're injected into the
 Ollama prompt to keep names/terms consistent in the translation.
@@ -97,10 +107,12 @@ and reports the real device in `/health`.
 
 ### 3. Ollama (for the default `ollama` engine)
 Install Ollama (https://ollama.com) and pull a chat model. The default is
-`qwen2.5:7b`:
+`gemma2:9b`; `aya-expanse:8b` is the recommended alternative — both are strong
+multilingual models that avoid the `qwen2.5:7b` Chinese-character leak:
 
 ```powershell
-ollama pull qwen2.5:7b
+ollama pull gemma2:9b
+ollama pull aya-expanse:8b
 ```
 
 Ollama should be running at `http://127.0.0.1:11434`. The popup model dropdown
@@ -177,8 +189,9 @@ download + load finishes. After that it flips to `true`. Example:
   "embed" model filtered out. Populates the popup dropdown.
 - `WS /transcribe`:
   - First client message:
-    `{"videoId":str,"startTime":float,"language":null|str,"engine":"ollama"|"whisper","model":str,"preBuffer":bool,"quality":"auto"|"max"|"balanced"|"lite","cleanAudio":"off"|"light"|"music","diarize":bool,"hotwords":null|str,"glossary":[{"term":str,"preferred":str}]}`
-    (`language: null` = auto-detect; `hotwords` derived from `glossary`).
+    `{"videoId":str,"startTime":float,"language":null|str,"engine":"ollama"|"whisper","model":str,"preBuffer":bool,"quality":"auto"|"max"|"balanced"|"lite","cleanAudio":"off"|"light"|"music","diarize":bool,"enrolledOnly":bool,"hotwords":null|str,"glossary":[{"term":str,"preferred":str}]}`
+    (`language: null` = auto-detect; `hotwords` derived from `glossary`;
+    `enrolledOnly` keeps only the enrolled speaker and implies diarization).
   - Ongoing client messages while watching:
     `{"type":"position","currentTime":float}` — sent every few seconds and on
     seek. Read concurrently by the server; drives lead-following/pre-buffer.
@@ -213,8 +226,8 @@ python transcribe.py path\to\audio.m4a cs        # force Czech source
 
 Transcripts are stored as JSON under `cache/`, keyed by
 `videoId + language + task + engine + model + variant`. The `variant` folds in
-the resolved Whisper model, the clean-audio mode, and diarized-vs-mono, so
-different feature combos cache separately. Coverage is tracked as `covered`
+the resolved Whisper model, the clean-audio mode, diarized-vs-mono, and the
+enrolled-only flag, so different feature combos cache separately. Coverage is tracked as `covered`
 intervals. Partial transcripts are persisted as windows complete; re-opening a
 video streams the covered range instantly and resumes transcribing only the
 uncovered tail. Legacy `covered_until`-only files and old keys without a

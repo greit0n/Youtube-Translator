@@ -268,7 +268,7 @@
     <p>Translation now happens in <strong>two stages</strong> for far more faithful results:</p>
     <ul class="plain">
       <li><strong>Stage 1 — Transcribe.</strong> Whisper (<code>large-v3</code>) writes down what's actually spoken, in the <em>original</em> language.</li>
-      <li><strong>Stage 2 — Translate.</strong> A local <strong>Ollama</strong> chat model (default <code>qwen2.5:7b</code>) translates that into natural English while <strong>preserving profanity, slang, and names</strong> instead of sanitizing them.</li>
+      <li><strong>Stage 2 — Translate.</strong> A local <strong>Ollama</strong> chat model (default <code>gemma2:9b</code>) translates that into natural English while <strong>preserving profanity, slang, and names</strong> instead of sanitizing them.</li>
     </ul>
     <p>You choose this in the popup under <strong>Translation engine</strong>: <em>Faithful (Ollama)</em> is the new default. If Ollama isn't running, the tool automatically <strong>falls back</strong> to Whisper's own built-in translation (the old <em>Fast</em> mode) so you still get subtitles.</p>
 
@@ -316,13 +316,14 @@ ffmpeg -version</code></pre>
     </div>
 
     <h3>Installing Ollama &amp; pulling a translation model</h3>
-    <p>Download and install Ollama from <a href="https://ollama.com">ollama.com</a>. Once installed it runs in the background. Then pull the default chat model used for translation:</p>
-    <pre><code>ollama pull qwen2.5:7b</code></pre>
-    <p>That's a ~5 GB download (once). On a 16 GB GPU it runs comfortably <strong>alongside</strong> Whisper. Confirm Ollama is up and the model is there:</p>
+    <p>Download and install Ollama from <a href="https://ollama.com">ollama.com</a>. Once installed it runs in the background. Then pull the default chat model used for translation (and, recommended, the strong alternative):</p>
+    <pre><code>ollama pull gemma2:9b
+ollama pull aya-expanse:8b</code></pre>
+    <p>Each is roughly a ~5 GB download (once). On a 16 GB GPU either runs comfortably <strong>alongside</strong> Whisper. Both are strong multilingual models and — unlike the older <code>qwen2.5:7b</code> — they won't occasionally leak Chinese characters into the English subtitles. You can switch between any pulled model later in the popup's <strong>Ollama model</strong> dropdown. Confirm Ollama is up and the models are there:</p>
     <pre><code>ollama list</code></pre>
 
     <div class="callout warn">
-      <p><strong>Your existing <code>qwen3-embedding</code> model will NOT work for translation.</strong> Embedding models only turn text into vectors — they can't generate translations. You need a <em>chat</em> model like <code>qwen2.5:7b</code>.</p>
+      <p><strong>Your existing <code>qwen3-embedding</code> model will NOT work for translation.</strong> Embedding models only turn text into vectors — they can't generate translations. You need a <em>chat</em> model like <code>gemma2:9b</code> or <code>aya-expanse:8b</code>.</p>
     </div>
     <div class="callout info">
       <p>If Ollama isn't installed or running, the tool still works — it just falls back to Whisper's built-in (less faithful) translation.</p>
@@ -366,7 +367,7 @@ ffmpeg -version</code></pre>
       </li>
       <li>
         <strong>Make sure Ollama is running.</strong>
-        <p>For faithful translation, Ollama needs to be running with a chat model pulled. If you installed it (see <a href="#prereqs">Prerequisites</a>), it usually starts on its own — confirm with <code>ollama list</code> and check <code>qwen2.5:7b</code> is listed. If it's not running, the helper quietly falls back to Whisper's built-in translation.</p>
+        <p>For faithful translation, Ollama needs to be running with a chat model pulled. If you installed it (see <a href="#prereqs">Prerequisites</a>), it usually starts on its own — confirm with <code>ollama list</code> and check <code>gemma2:9b</code> is listed. If it's not running, the helper quietly falls back to Whisper's built-in translation.</p>
       </li>
       <li>
         <strong>Wait until it's ready.</strong>
@@ -418,7 +419,7 @@ ffmpeg -version</code></pre>
       </li>
       <li>
         <strong>Choose the Ollama model.</strong>
-        <p>Use the <strong>Ollama model</strong> dropdown to pick the chat model for translation — <code>qwen2.5:7b</code> is the recommended default. If the dropdown is empty, you haven't pulled a model yet: run <code>ollama pull qwen2.5:7b</code> and reopen the popup.</p>
+        <p>Use the <strong>Ollama model</strong> dropdown to pick the chat model for translation — <code>gemma2:9b</code> is the recommended default, with <code>aya-expanse:8b</code> a strong alternative. If the dropdown is empty, you haven't pulled a model yet: run <code>ollama pull gemma2:9b</code> and reopen the popup.</p>
       </li>
       <li>
         <strong>Leave Pre-buffer on.</strong>
@@ -460,6 +461,17 @@ ffmpeg -version</code></pre>
 
     <h3>Speaker labels</h3>
     <p>Tags each line with a stable <strong>“Speaker 1”, “Speaker 2”…</strong> label (and a distinct color) so multi-person videos are easier to follow. Off by default. <strong>Needs the free HuggingFace token</strong> from <a href="#step1">Step 1</a>; without it, this simply stays off and subtitles look normal. It adds a little processing time per window.</p>
+
+    <h3>Only my voice</h3>
+    <p>In the <strong>Speakers</strong> section, the <strong>“Only my voice”</strong> toggle narrows the subtitles down to <strong>just you</strong> — it drops game audio and every other speaker, showing only the lines spoken in your enrolled voice. Handy for commentary recordings where you want your own talk subtitled and nothing else.</p>
+    <p>It works by matching against a short <strong>voice clip you provide</strong>, so it has two requirements (the same ones as Speaker labels, since it turns on speaker detection automatically):</p>
+    <ul class="plain">
+      <li>A reference recording of your voice saved into the <code>helper\enroll\</code> folder.</li>
+      <li>The free <strong>HuggingFace token</strong> from <a href="#step1">Step 1</a>.</li>
+    </ul>
+    <div class="callout info">
+      <p>If you turn <strong>Only my voice</strong> on but there's no voice clip in <code>helper\enroll\</code> or no HuggingFace token, nothing breaks — the helper falls back to showing <strong>all</strong> speakers and posts a short status note telling you what was missing.</p>
+    </div>
 
     <h3>Glossary</h3>
     <p>A box where you can list <strong>names and terms</strong> the tool should get right — one per line. This both helps Whisper <em>hear</em> the word correctly and keeps the translation <strong>consistent</strong>. Two formats:</p>
@@ -592,19 +604,19 @@ winget install DenoLand.Deno</code></pre>
         </tr>
         <tr>
           <td class="problem">Translations look censored / not faithful</td>
-          <td>Make sure the <strong>Translation engine</strong> in the popup is set to <strong>Faithful (Ollama)</strong> (not Fast), that you've run <code>ollama pull qwen2.5:7b</code>, and that Ollama is actually running (<code>ollama list</code>). The Fast/Whisper engine tends to sanitize slang and profanity.</td>
+          <td>Make sure the <strong>Translation engine</strong> in the popup is set to <strong>Faithful (Ollama)</strong> (not Fast), that you've run <code>ollama pull gemma2:9b</code>, and that Ollama is actually running (<code>ollama list</code>). The Fast/Whisper engine tends to sanitize slang and profanity.</td>
         </tr>
         <tr>
           <td class="problem">Subtitles say “falling back to Whisper”</td>
           <td>The helper couldn't reach Ollama, so it used Whisper's built-in translation instead. Start Ollama and make sure a chat model is pulled:<br>
-            <pre><code>ollama pull qwen2.5:7b
+            <pre><code>ollama pull gemma2:9b
 ollama list</code></pre>
           </td>
         </tr>
         <tr>
           <td class="problem">No model in the dropdown</td>
           <td>You haven't pulled a chat model yet. Run the command below, then reopen the popup:<br>
-            <pre><code>ollama pull qwen2.5:7b</code></pre>
+            <pre><code>ollama pull gemma2:9b</code></pre>
           </td>
         </tr>
         <tr>

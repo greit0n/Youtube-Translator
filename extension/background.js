@@ -10,9 +10,9 @@ const DEFAULT_SETTINGS = {
   language: null, // null = auto-detect; otherwise an ISO code like "cs"
   fontSize: "medium", // "small" | "medium" | "large"
   // Translation engine: "whisper" (fast built-in) or "ollama" (faithful LLM).
-  engine: "whisper",
+  engine: "ollama",
   // Ollama chat model used when engine === "ollama".
-  model: "qwen2.5:7b",
+  model: "gemma2:9b",
   // Whether the helper should pre-buffer / look ahead of playback.
   preBuffer: true,
   // Pause playback until subtitles for the current moment are ready (client-side).
@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS = {
   cleanAudio: "off",
   // Whether to run speaker diarization on the helper side.
   diarize: false,
+  enrolledOnly: false, // when on, show ONLY the enrolled "your voice" speaker (drops game audio + other speakers)
   // Multiline glossary: one entry per line, "term" or "term = preferred". Sent to the helper.
   glossary: "",
   // Display name for the enrolled "your voice" speaker (overrides the enroll file name).

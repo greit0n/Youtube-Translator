@@ -35,6 +35,7 @@ Cross-window stability:
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,12 @@ ENROLL_THRESHOLD: float = 0.45
 # Diarization turns shorter than this are dropped before labeling: too little
 # audio for a trustworthy embedding, and they spawn phantom speakers.
 MIN_TURN_DUR: float = 0.5
+
+# An enrolled label is only STAMPED (new_seg["enrolled"]=True) when the enrolled
+# speaker's turns cover at least this fraction of a segment's duration. Guards
+# against a mostly-game chunk being tagged as the enrolled voice off a sliver of
+# overlap (which enrolled-only mode would then keep).
+ENROLL_MIN_COVERAGE: float = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -325,10 +332,12 @@ class SpeakerTracker:
     def _load_enrollments(self) -> None:
         """Scan ENROLL_DIR and pre-seed the registry with locked reference voices.
 
-        Each audio file becomes one enrolled speaker whose label is the filename
-        (without extension). Its centroid is a whole-file voiceprint and is
-        LOCKED (never drifts via the running-mean update) so the reference stays
-        clean across the session.
+        Multiple clips that share a base name (e.g. "Agraelus.mp3",
+        "Agraelus2.mp3", "Agraelus_3.mp3", "Agraelus 4.mp3") are MERGED into ONE
+        enrolled voiceprint: each clip is embedded and the per-element MEAN of the
+        clips' embeddings becomes that name's centroid. More clips => stronger
+        recall. The centroid is LOCKED (never drifts via the running-mean update)
+        so the reference stays clean across the session.
         """
         if self._embedding is None:
             return
@@ -342,21 +351,42 @@ class SpeakerTracker:
         if not files:
             return
 
+        # Group files by a normalised base name (strip extension, then a trailing
+        # run of digits and any trailing spaces/underscores/hyphens). Keep the
+        # display label + order from the FIRST file seen for each name.
+        groups: dict[str, dict] = {}  # norm_key -> {"label": str, "paths": [..]}
         for fname in files:
-            name = os.path.splitext(fname)[0]
+            stem = os.path.splitext(fname)[0]
+            base = re.sub(r"[\s_-]*\d+$", "", stem).strip(" _-")
+            if not base:
+                base = stem  # all-digits name -> fall back to the stem
+            key = base.lower()
             path = os.path.join(ENROLL_DIR, fname)
-            emb = self._embed_whole(path)
-            if emb is None:
+            if key not in groups:
+                groups[key] = {"label": base, "paths": []}
+            groups[key]["paths"].append(path)
+
+        for grp in groups.values():
+            name = grp["label"]
+            embs = []
+            for path in grp["paths"]:
+                emb = self._embed_whole(path)
+                if emb is not None:
+                    embs.append(emb)
+            if not embs:
                 _log(f"diarize: enrollment '{name}' skipped (no embedding)")
                 continue
+            # Element-wise mean across this name's clips -> the centroid.
+            n = len(embs)
+            mean_emb = [sum(vals) / n for vals in zip(*embs)]
             self._speakers.append({
                 "label": name,
-                "centroid": emb,
+                "centroid": mean_emb,
                 "count": 1,
                 "enrolled": True,   # flag segments + paint a chosen colour
                 "locked": True,     # don't drift the clean reference
             })
-            _log(f"diarize: enrolled voice '{name}' from {fname}")
+            _log(f"diarize: enrolled voice '{name}' from {len(embs)} clip(s)")
 
     def _embed_whole(self, audio_path: str):
         """Whole-file voiceprint (list[float]) for an enrollment clip, or None."""
@@ -462,7 +492,26 @@ class SpeakerTracker:
             if label is not None:
                 new_seg["speaker"] = label
                 if label in enrolled_labels:
-                    new_seg["enrolled"] = True
+                    # Only STAMP enrolled when this label's turns actually cover a
+                    # solid fraction of the segment — a mostly-game chunk that
+                    # merely brushes an enrolled turn keeps the speaker label but
+                    # is NOT flagged enrolled (so enrolled-only mode drops it).
+                    seg_start = float(seg.get("start", 0.0))
+                    seg_end = float(seg.get("end", seg_start))
+                    seg_dur = seg_end - seg_start
+                    if seg_dur > 0:
+                        covered = sum(
+                            _overlap_duration(
+                                seg_start, seg_end, t["start"], t["end"]
+                            )
+                            for t in abs_turns
+                            if t["global"] == label
+                        )
+                        coverage = covered / seg_dur
+                    else:
+                        coverage = 0.0
+                    if coverage >= ENROLL_MIN_COVERAGE:
+                        new_seg["enrolled"] = True
             out.append(new_seg)
 
         return out

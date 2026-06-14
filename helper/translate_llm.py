@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 import requests
 
 BASE_URL = "http://127.0.0.1:11434"
-DEFAULT_MODEL = "qwen2.5:7b"
+DEFAULT_MODEL = "gemma2:9b"
 
 # Short timeout for liveness/listing; generation gets a longer one.
 _PROBE_TIMEOUT = 1.5
@@ -71,9 +71,11 @@ def _build_prompt(
     lang = src_lang or "foreign"
     lines = [
         f"Translate the following {lang} speech transcript to natural, spoken "
-        "English. Preserve profanity, slang, and gaming terms faithfully — "
-        "DO NOT censor or soften. Keep names and proper nouns. Output ONLY the "
-        "English translation, no notes.",
+        "English. Render swearing as the natural, equivalent English swearing — "
+        "never censor, euphemise, bracket, or omit it. Preserve slang and gaming "
+        "terms faithfully, and keep names and proper nouns. The output MUST be "
+        "English only: NEVER include any other language or non-Latin script. "
+        "Output ONLY the English translation, no notes.",
     ]
 
     if glossary:

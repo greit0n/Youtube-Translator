@@ -520,7 +520,7 @@
           <select id="model"></select>
         </div>
         <p class="hint warn" id="modelHint" hidden>
-          No chat model found — run <code>ollama pull qwen2.5:7b</code>
+          No chat model found — run <code>ollama pull gemma2:9b</code>
         </p>
       </div>
 
@@ -615,6 +615,21 @@
           <p class="hint" id="diarizeHint">
             Needs a free HuggingFace token; first run downloads the diarization
             model (see how-to.html).
+          </p>
+          <div class="row">
+            <span class="row-label">
+              Only my voice
+              <span class="sublabel">hide game audio &amp; other speakers</span>
+            </span>
+            <label class="switch">
+              <input type="checkbox" id="enrolledOnly" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="hint">
+            Shows only your enrolled voice — drops game audio and everyone else.
+            Needs a clip in helper/enroll/ and turns on speaker detection
+            automatically.
           </p>
           <div class="row">
             <label for="highlightName">Your voice — name</label>

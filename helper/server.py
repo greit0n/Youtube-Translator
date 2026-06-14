@@ -272,6 +272,9 @@ async def transcribe_ws(ws: WebSocket) -> None:
         quality = req.get("quality") or "auto"
         clean_audio = req.get("cleanAudio") or "off"
         diarize = bool(req.get("diarize"))
+        enrolled_only = bool(req.get("enrolledOnly"))
+        # Enrolled-only needs speaker tags to filter on, so force diarization on.
+        diarize = diarize or enrolled_only
         glossary = req.get("glossary") or []  # [{term, preferred}, ...]
 
         if not video_id:
@@ -291,12 +294,13 @@ async def transcribe_ws(ws: WebSocket) -> None:
 
         # Cache variant captures output-affecting dims so different quality/clean/diarize
         # combos get separate cache files.
-        variant = f"{whisper_model}|{clean_audio}|{'diar' if diarize else 'mono'}"
+        variant = f"{whisper_model}|{clean_audio}|{'diar' if diarize else 'mono'}|{'eo' if enrolled_only else 'all'}"
 
         _log(
             f"session video={video_id} start={start_time:.1f} engine={engine} "
             f"preBuffer={pre_buffer} quality={quality} whisper_model={whisper_model} "
-            f"clean={clean_audio} diarize={diarize} cookies={audio.cookies_source()}"
+            f"clean={clean_audio} diarize={diarize} enrolled_only={enrolled_only} "
+            f"cookies={audio.cookies_source()}"
         )
 
         sess.current_time = start_time
@@ -393,6 +397,9 @@ async def transcribe_ws(ws: WebSocket) -> None:
         # Whether we've already warned the client that diarization is unavailable
         # (no HF token / missing libs) — sent at most once per session.
         warned_diarize = False
+        # Whether we've already warned the client that enrolled-only can't filter
+        # (no enrolled voice / diarization unavailable) — sent at most once.
+        warned_eo = False
 
         # eff_task tracks the task actually written to cache (whisper fallback
         # writes English under "translate", not the source transcript).
@@ -512,7 +519,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 # language — e.g. subtitle the Czech streamer but drop the English
                 # game audio EVEN WITHIN THE SAME WINDOW. Each seg carries its own
                 # detected language (4th tuple element) via per-segment detection.
-                if language and segs:
+                if language and segs and not enrolled_only:
                     before = len(segs)
                     segs = [s for s in segs if (s[3] or language) == language]
                     if len(segs) != before:
@@ -555,6 +562,29 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 audio.cleanup(wav_path)
                 if clean_wav != wav_path:
                     audio.cleanup(clean_wav)
+
+            # Enrolled-only: keep ONLY segments spoken by an enrolled voice. This
+            # replaces the language filter (which would drop his speech under
+            # music) with speaker identity. Filter segs/speakers/enrolled_flags
+            # together so the streaming loop, Ollama translate, and cache all see
+            # just the kept lines.
+            if enrolled_only:
+                if not diarize_mod.enrolled_names() or enrolled_flags is None:
+                    # No enrolled voice or diarization unavailable -> can't filter
+                    # safely (would blank the screen). Warn once, show everyone.
+                    if not warned_eo:
+                        warned_eo = True
+                        await ws.send_json({
+                            "type": "status",
+                            "message": "enrolled-only needs a voice clip in "
+                            "helper/enroll/ + a HuggingFace token — showing all "
+                            "speakers",
+                        })
+                else:
+                    keep = [i for i in range(len(segs)) if enrolled_flags[i]]
+                    segs = [segs[i] for i in keep]
+                    speakers = [speakers[i] for i in keep] if speakers else None
+                    enrolled_flags = [enrolled_flags[i] for i in keep]
 
             _log(
                 f"window [{cursor:.1f},{window_end:.1f}] engine={eff_engine} "

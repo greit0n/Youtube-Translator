@@ -24,13 +24,14 @@
     enabled: true,
     language: null, // null = auto-detect
     fontSize: "medium",
-    engine: "whisper", // "whisper" (fast built-in) | "ollama" (faithful LLM)
-    model: "qwen2.5:7b", // Ollama chat model (used when engine === "ollama")
+    engine: "ollama", // "whisper" (fast built-in) | "ollama" (faithful LLM)
+    model: "gemma2:9b", // Ollama chat model (used when engine === "ollama")
     preBuffer: true, // ask the helper to look ahead / pre-buffer
     autoPause: true, // pause playback until subtitles for "now" are ready
     quality: "auto", // "auto" | "max" | "balanced" | "lite"
     cleanAudio: "off", // "off" | "light" | "music"
     diarize: false, // speaker diarization (server-side)
+    enrolledOnly: false, // when on, server shows only the enrolled voice
     glossary: "", // multiline: "term" or "term = preferred" per line
     highlightName: "", // display name for the enrolled "your voice" speaker
     highlightColor: "#ff3b30" // colour painted on the enrolled speaker (default red)
@@ -521,6 +522,7 @@
         quality: settings.quality, // "auto" | "max" | "balanced" | "lite"
         cleanAudio: settings.cleanAudio, // "off" | "light" | "music"
         diarize: settings.diarize, // bool: speaker diarization
+        enrolledOnly: settings.enrolledOnly, // bool: show only the enrolled voice
         hotwords: g.hotwords, // space-joined terms from glossary (or null)
         glossary: g.glossary // [{term, preferred}, ...] for "=" lines
       };
@@ -946,19 +948,20 @@
   function loadSettingsThenInit() {
     chrome.storage.sync.get(
       ["enabled", "language", "fontSize", "engine", "model", "preBuffer", "autoPause",
-       "quality", "cleanAudio", "diarize", "glossary", "highlightName", "highlightColor"],
+       "quality", "cleanAudio", "diarize", "enrolledOnly", "glossary", "highlightName", "highlightColor"],
       (stored) => {
       settings.enabled = stored.enabled !== false; // default true
       settings.language =
         stored.language === undefined ? null : stored.language;
       settings.fontSize = stored.fontSize || "medium";
       settings.engine = stored.engine === "ollama" ? "ollama" : "whisper";
-      settings.model = stored.model || "qwen2.5:7b";
+      settings.model = stored.model || "gemma2:9b";
       settings.preBuffer = stored.preBuffer !== false; // default true
       settings.autoPause = stored.autoPause !== false; // default true
       settings.quality = stored.quality || "auto";
       settings.cleanAudio = stored.cleanAudio || "off";
       settings.diarize = stored.diarize === true;
+      settings.enrolledOnly = stored.enrolledOnly === true;
       settings.glossary = stored.glossary || "";
       settings.highlightName = stored.highlightName || "";
       settings.highlightColor = stored.highlightColor || "#ff3b30";
@@ -991,7 +994,7 @@
       needsReinit = true; // engine is part of the start message → reconnect
     }
     if ("model" in changes) {
-      settings.model = changes.model.newValue || "qwen2.5:7b";
+      settings.model = changes.model.newValue || "gemma2:9b";
       needsReinit = true; // model is part of the start message → reconnect
     }
     if ("preBuffer" in changes) {
@@ -1020,6 +1023,10 @@
     if ("diarize" in changes) {
       settings.diarize = changes.diarize.newValue === true;
       needsReinit = true; // diarize is part of the start message → reconnect
+    }
+    if ("enrolledOnly" in changes) {
+      settings.enrolledOnly = changes.enrolledOnly.newValue === true;
+      needsReinit = true; // enrolledOnly is part of the start message → reconnect
     }
     if ("glossary" in changes) {
       settings.glossary = changes.glossary.newValue || "";
