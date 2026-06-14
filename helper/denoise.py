@@ -115,7 +115,14 @@ def _load_df():
     from df.enhance import init_df  # type: ignore[import]
 
     _log("denoise: loading DeepFilterNet model (first use) …")
-    _df_model, _df_state, _df_sr = init_df()
+    # init_df() returns (model, df_state, suffix_string) — the 3rd element is a
+    # model-name suffix (e.g. "DeepFilterNet3"), NOT the sample rate. The native
+    # SR (48000) must be read from the DF state's .sr().
+    _df_model, _df_state, _ = init_df()
+    try:
+        _df_sr = int(_df_state.sr())
+    except Exception:
+        _df_sr = 48000  # DeepFilterNet3 native rate
     _log(f"denoise: DeepFilterNet ready (native SR={_df_sr})")
     return _df_model, _df_state, _df_sr
 
@@ -183,10 +190,13 @@ def _clean_music(wav_path: str) -> str:
     from demucs.apply import apply_model  # type: ignore[import]
 
     model = _load_demucs()
+    model.eval()
 
-    # Choose device: CUDA when available, CPU otherwise.
+    # Choose device: CUDA when available, CPU otherwise. NOTE: do NOT pre-move
+    # the model or feed a CUDA tensor to apply_model — demucs's apply_model takes
+    # a CPU mixture plus a `device=` arg and moves the model/segments itself.
+    # Pre-moving caused an "input is cuda / weight is cpu" device mismatch.
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
 
     # Load the window WAV.  Demucs expects a tensor of shape (batch, channels, samples).
     # We use torchaudio here because it's already a transitive dependency of demucs.
@@ -204,7 +214,7 @@ def _clean_music(wav_path: str) -> str:
     if waveform.shape[0] == 1:
         waveform = waveform.repeat(2, 1)
 
-    mixture = waveform.unsqueeze(0).to(device)  # (1, 2, T)
+    mixture = waveform.unsqueeze(0)  # (1, 2, T) on CPU — apply_model moves it
 
     with torch.no_grad():
         sources = apply_model(model, mixture, device=device)  # (1, stems, 2, T)

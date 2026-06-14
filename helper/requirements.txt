@@ -5,6 +5,11 @@ faster-whisper
 # memory/blackwell-ctranslate2-cuda.md). whisperx may try to pull a different
 # ctranslate2 transitively — do NOT let it downgrade/upgrade this.
 ctranslate2==4.8.0
+# Pin numpy >=2.1: whisperx/pyannote require numpy>=2.1. The optional Clean-audio
+# deps (deepfilternet) DECLARE numpy<2 but actually run fine on numpy>=2.1 — so
+# installing requirements-optional.txt will try to DOWNGRADE numpy and break the
+# core. Keep numpy here and, after any optional install, run: pip install "numpy>=2.1".
+numpy>=2.1
 yt-dlp
 fastapi
 uvicorn[standard]

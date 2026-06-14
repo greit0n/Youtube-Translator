@@ -1,6 +1,8 @@
-# Secrets — YouTube auth cookies. NEVER commit.
+# Secrets — YouTube auth cookies + HuggingFace token. NEVER commit.
 helper/cookies.txt
 cookies.txt
+helper/hf_token.txt
+hf_token.txt
 
 # Helper runtime artifacts
 helper/*.log

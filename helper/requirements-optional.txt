@@ -4,8 +4,13 @@
 # dependency is absent. Install only the ones whose feature you want.
 #
 # Noise & music suppression (Clean audio = Light / Music):
-deepfilternet      # light denoise
-demucs             # music / vocal isolation
+#   NOTE: deepfilternet declares numpy<2, but it runs fine on numpy>=2.1 (which
+#   the whisperx core REQUIRES). pip will downgrade numpy when installing these,
+#   which breaks whisperx — so AFTER installing this file, restore numpy with:
+#       pip install "numpy>=2.1"
+#   (Both DeepFilterNet and Demucs are verified working on numpy 2.2.6.)
+deepfilternet      # light denoise (DeepFilterNet3, runs on GPU)
+demucs             # music / vocal isolation (htdemucs vocals stem)
 
 # Speaker diarization (Speaker labels toggle):
 #   No extra pip installs needed — whisperx (which bundles pyannote.audio) is
