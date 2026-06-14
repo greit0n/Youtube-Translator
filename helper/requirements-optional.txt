@@ -1,0 +1,10 @@
+# Optional extras — install only for the heavy, opt-in features.
+# These are NOT needed for the core helper; each feature degrades gracefully
+# (the relevant module returns the original audio / falls back) when its
+# dependency is absent. Install only the ones whose feature you want.
+#
+# Noise & music suppression (Clean audio = Light / Music):
+deepfilternet      # light denoise
+demucs             # music / vocal isolation
+
+# Phase E — speaker diarization deps will be appended here later.

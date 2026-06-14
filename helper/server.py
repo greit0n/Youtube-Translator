@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import audio
 import cache
+import denoise
 import transcribe
 import translate_llm
 
@@ -291,7 +292,6 @@ async def transcribe_ws(ws: WebSocket) -> None:
             f"preBuffer={pre_buffer} quality={quality} whisper_model={whisper_model} "
             f"clean={clean_audio} diarize={diarize} cookies={audio.cookies_source()}"
         )
-        # TODO(phase D): pass clean_audio to audio pre-processing pipeline
         # TODO(phase E): pass diarize flag to diarization step
 
         sess.current_time = start_time
@@ -458,6 +458,11 @@ async def transcribe_ws(ws: WebSocket) -> None:
             _t_fetch = time.time() - _t0
             fetch_fails = 0
 
+            # Optional noise/music suppression BEFORE transcription. denoise is
+            # lazy + graceful: it returns wav_path unchanged on off/missing-lib/
+            # failure, and can be heavy -> run on a worker thread.
+            clean_wav = await asyncio.to_thread(denoise.clean, wav_path, clean_audio)
+
             try:
                 if eff_engine == "whisper":
                     # Fast beam at the playhead (latency is felt here); full beam
@@ -466,7 +471,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     raw = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe(
-                            wav_path, language=language, time_offset=cursor,
+                            clean_wav, language=language, time_offset=cursor,
                             hotwords=hotwords, beam_size=beam,
                         ),
                     )
@@ -475,11 +480,16 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     segs = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe_source(
-                            wav_path, language=language, time_offset=cursor, hotwords=hotwords
+                            clean_wav, language=language, time_offset=cursor, hotwords=hotwords
                         ),
                     )
             finally:
+                # Remove the fetched window WAV; also remove the denoised file,
+                # but only when it's a distinct temp file (denoise returns the
+                # original path when it didn't process -> don't double-clean).
                 audio.cleanup(wav_path)
+                if clean_wav != wav_path:
+                    audio.cleanup(clean_wav)
 
             _log(
                 f"window [{cursor:.1f},{window_end:.1f}] engine={eff_engine} "

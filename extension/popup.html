@@ -281,6 +281,18 @@
     </div>
 
     <div class="row">
+      <label for="cleanAudio" title="Suppress background noise or music before transcription so Whisper hears the speech more clearly.">Clean audio</label>
+      <select id="cleanAudio">
+        <option value="off">Off</option>
+        <option value="light">Light — denoise</option>
+        <option value="music">Music — vocal isolation</option>
+      </select>
+    </div>
+    <div class="hint" id="cleanAudioHint">
+      Light/Music need extra installs (see how-to.html).
+    </div>
+
+    <div class="row">
       <label for="fontSize">Caption size</label>
       <select id="fontSize">
         <option value="small">Small</option>

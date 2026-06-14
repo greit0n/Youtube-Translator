@@ -33,6 +33,7 @@ const modelHintEl = document.getElementById("modelHint");
 const preBufferEl = document.getElementById("preBuffer");
 const autoPauseEl = document.getElementById("autoPause");
 const qualityEl = document.getElementById("quality");
+const cleanAudioEl = document.getElementById("cleanAudio");
 const glossaryEl = document.getElementById("glossary");
 const statusDot = document.getElementById("statusDot");
 const statusTitle = document.getElementById("statusTitle");
@@ -55,6 +56,7 @@ function loadSettings() {
     const preBuffer = stored.preBuffer !== false; // default true
     const autoPause = stored.autoPause !== false; // default true
     const quality = stored.quality || "auto";
+    const cleanAudio = stored.cleanAudio || "off";
     const glossary = stored.glossary || "";
 
     enabledEl.checked = enabled;
@@ -65,6 +67,7 @@ function loadSettings() {
     preBufferEl.checked = preBuffer;
     autoPauseEl.checked = autoPause;
     qualityEl.value = quality;
+    cleanAudioEl.value = cleanAudio;
     glossaryEl.value = glossary;
 
     // Remember the desired model so it can be selected after /models loads.
@@ -121,6 +124,10 @@ autoPauseEl.addEventListener("change", () => {
 
 qualityEl.addEventListener("change", () => {
   save("quality", qualityEl.value);
+});
+
+cleanAudioEl.addEventListener("change", () => {
+  save("cleanAudio", cleanAudioEl.value);
 });
 
 // Glossary textarea fires many input events while typing — debounce the save
