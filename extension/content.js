@@ -135,6 +135,34 @@
     });
   }
 
+  // ---- Speaker colors -----------------------------------------------------
+
+  // Fixed palette of ~8 pleasant, legible colors. Speakers are assigned a color
+  // in first-seen order and the assignment is remembered for the page lifetime
+  // (so "Speaker 1" keeps its color across windows/seeks). Cycles if exhausted.
+  const SPEAKER_PALETTE = [
+    "#5db4ff", // blue
+    "#ff8a5c", // orange
+    "#5cd6a0", // green
+    "#d98aff", // purple
+    "#ffd35c", // amber
+    "#ff7aa8", // pink
+    "#6fe0e0", // teal
+    "#b6d65c"  // lime
+  ];
+  const speakerColors = new Map();
+
+  // Stable color for a speaker label, assigned on first sight (cycles palette).
+  function colorForSpeaker(label) {
+    if (!label) return null;
+    let c = speakerColors.get(label);
+    if (!c) {
+      c = SPEAKER_PALETTE[speakerColors.size % SPEAKER_PALETTE.length];
+      speakerColors.set(label, c);
+    }
+    return c;
+  }
+
   // ---- Overlay rendering --------------------------------------------------
 
   // Ensure the overlay DOM exists and is parented inside the given player.
@@ -170,12 +198,32 @@
   // Render plain caption text (subtitle). Empty string clears the caption.
   // Clears any loader state so the caption renders as plain text and the
   // `:empty` hiding rule still applies when text is "".
-  function renderCaption(text) {
+  //
+  // When `speaker` is a non-empty label, prepend a small colored speaker chip
+  // and tint the caption text with that speaker's stable color. Built entirely
+  // with createElement + textContent (never innerHTML) for safety.
+  function renderCaption(text, speaker) {
     if (!captionEl) return;
     captionEl.classList.remove("ytx-error", "ytx-status");
     delete captionEl.dataset.ytxMode;
     delete captionEl.dataset.ytxLabel;
-    captionEl.textContent = text || ""; // replaces any .ytx-loader child node
+    delete captionEl.dataset.ytxCap;
+    captionEl.style.color = ""; // drop any prior speaker tint
+
+    const t = text || "";
+    const color = speaker ? colorForSpeaker(speaker) : null;
+    if (t && color) {
+      captionEl.textContent = ""; // replaces any .ytx-loader / prior content
+      const chip = document.createElement("span");
+      chip.className = "ytx-speaker";
+      chip.textContent = speaker;
+      chip.style.color = color;
+      captionEl.appendChild(chip);
+      captionEl.appendChild(document.createTextNode(t));
+      captionEl.style.color = color; // tint the line in the speaker's color
+    } else {
+      captionEl.textContent = t; // replaces any .ytx-loader child node
+    }
   }
 
   // Render a status/error message that persists until replaced. Used for hard
@@ -186,6 +234,8 @@
     captionEl.classList.remove("ytx-error", "ytx-status");
     delete captionEl.dataset.ytxMode;
     delete captionEl.dataset.ytxLabel;
+    delete captionEl.dataset.ytxCap;
+    captionEl.style.color = ""; // drop any prior speaker tint
     captionEl.classList.add(isError ? "ytx-error" : "ytx-status");
     captionEl.textContent = text || ""; // replaces any .ytx-loader child node
   }
@@ -206,6 +256,8 @@
     }
     captionEl.classList.remove("ytx-error");
     captionEl.classList.add("ytx-status");
+    captionEl.style.color = ""; // drop any prior speaker tint
+    delete captionEl.dataset.ytxCap;
     captionEl.dataset.ytxMode = "loading";
     captionEl.dataset.ytxLabel = label;
 
@@ -533,7 +585,8 @@
           insertSegment(s.segments, {
             start: msg.start,
             end: msg.end,
-            text: msg.text
+            text: msg.text,
+            speaker: typeof msg.speaker === "string" ? msg.speaker : null
           });
           // Show the new segment if it covers now (else status stays).
           updateCaptionForCurrentTime(s);
@@ -689,8 +742,12 @@
     const t = s.video.currentTime;
     const seg = findSegmentAt(s.segments, t);
     if (seg) {
-      if (captionEl.textContent !== seg.text || captionEl.classList.contains("ytx-status")) {
-        renderCaption(seg.text);
+      // Idempotency key includes the speaker so a chip/tint change re-renders,
+      // and so a loader/status frame (which clears ytxCap) always re-renders.
+      const key = (seg.speaker || "") + " " + seg.text;
+      if (captionEl.dataset.ytxCap !== key || captionEl.classList.contains("ytx-status")) {
+        renderCaption(seg.text, seg.speaker);
+        captionEl.dataset.ytxCap = key;
       }
       return;
     }

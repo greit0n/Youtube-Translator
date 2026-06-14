@@ -62,6 +62,23 @@
   opacity: 0.92;
 }
 
+/* ---- Speaker chip (diarization) ------------------------------------------
+ * Small rounded bold prefix shown before a caption when the segment carries a
+ * stable speaker label. Its color is set inline by JS (per-speaker palette);
+ * the caption text itself is tinted to match. The dark caption pill plus the
+ * inherited text-shadow keep both chip and tinted text legible over video. */
+.ytx-caption .ytx-speaker {
+  display: inline-block;
+  margin-right: 0.45em;
+  padding: 0 0.4em;
+  border-radius: 0.7em;
+  background: rgba(255, 255, 255, 0.14);
+  font-weight: 700;
+  font-size: 0.78em;
+  vertical-align: baseline;
+  /* color set inline via JS; keep the legibility shadow from .ytx-caption */
+}
+
 /* ---- Animated loader (audio equalizer + shimmering label) ----------------
  * Shown for non-error "waiting" states (warming up, buffering, gate-hold,
  * re-translating). Built by renderLoading() inside .ytx-caption as:

@@ -293,6 +293,18 @@
     </div>
 
     <div class="row">
+      <label for="diarize" title="Label each subtitle with the speaker and tint it in a per-speaker color.">Speaker labels</label>
+      <label class="switch">
+        <input type="checkbox" id="diarize" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="hint" id="diarizeHint">
+      Needs a free HuggingFace token; first run downloads the diarization model
+      (see how-to.html).
+    </div>
+
+    <div class="row">
       <label for="fontSize">Caption size</label>
       <select id="fontSize">
         <option value="small">Small</option>

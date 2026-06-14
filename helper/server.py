@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import audio
 import cache
 import denoise
-import diarize
+from diarize import SpeakerTracker
 import transcribe
 import translate_llm
 
@@ -505,7 +505,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 speakers = None
                 if diarize and segs:
                     if sess.speaker_tracker is None:
-                        sess.speaker_tracker = diarize.SpeakerTracker(
+                        sess.speaker_tracker = SpeakerTracker(
                             device=transcribe.get_device()
                         )
                         if not sess.speaker_tracker.available() and not warned_diarize:
@@ -564,6 +564,9 @@ async def transcribe_ws(ws: WebSocket) -> None:
                         redo = True
                         break
                 seg = {"start": start, "end": end, "text": out_text}
+                sp = speakers[i] if speakers else None
+                if sp:
+                    seg["speaker"] = sp
                 produced.append(seg)
                 await ws.send_json({"type": "segment", **seg})
 

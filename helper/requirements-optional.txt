@@ -7,4 +7,15 @@
 deepfilternet      # light denoise
 demucs             # music / vocal isolation
 
-# Phase E — speaker diarization deps will be appended here later.
+# Speaker diarization (Speaker labels toggle):
+#   No extra pip installs needed — whisperx (which bundles pyannote.audio) is
+#   now a CORE dependency in requirements.txt. To USE speaker labels you only
+#   need a free HuggingFace token:
+#     1. Create a token at https://huggingface.co/settings/tokens
+#     2. Accept the model terms on:
+#          https://huggingface.co/pyannote/speaker-diarization-3.1
+#          https://huggingface.co/pyannote/embedding
+#     3. Provide it via the HF_TOKEN env var (or HUGGINGFACE_TOKEN), or put it
+#        on one line in helper/hf_token.txt
+#   The first run downloads the diarization model. Without a token the feature
+#   degrades gracefully (subtitles render unlabeled). See how-to.html.
