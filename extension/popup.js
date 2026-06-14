@@ -16,7 +16,11 @@ const DEFAULTS = {
   engine: "whisper", // "whisper" | "ollama"
   model: "qwen2.5:7b", // Ollama chat model
   preBuffer: true,
-  autoPause: true // pause until subtitles for "now" are ready
+  autoPause: true, // pause until subtitles for "now" are ready
+  quality: "auto", // "auto" | "max" | "balanced" | "lite"
+  cleanAudio: "off", // "off" | "light" | "music"
+  diarize: false, // speaker diarization
+  glossary: "" // multiline: "term" or "term = preferred" per line
 };
 
 // DOM references.

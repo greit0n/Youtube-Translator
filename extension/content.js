@@ -27,7 +27,11 @@
     engine: "whisper", // "whisper" (fast built-in) | "ollama" (faithful LLM)
     model: "qwen2.5:7b", // Ollama chat model (used when engine === "ollama")
     preBuffer: true, // ask the helper to look ahead / pre-buffer
-    autoPause: true // pause playback until subtitles for "now" are ready
+    autoPause: true, // pause playback until subtitles for "now" are ready
+    quality: "auto", // "auto" | "max" | "balanced" | "lite"
+    cleanAudio: "off", // "off" | "light" | "music"
+    diarize: false, // speaker diarization (server-side)
+    glossary: "" // multiline: "term" or "term = preferred" per line
   };
 
   // How often we report playback position to the helper so it can keep its
@@ -347,6 +351,35 @@
     }
   }
 
+  // Parse the multiline glossary setting into { hotwords, glossary }.
+  //   Each non-empty line is either "term" or "term = preferred".
+  //   hotwords: all terms space-joined (string), or null if none.
+  //   glossary: array of {term, preferred} for lines that contain "=".
+  function parseGlossary(text) {
+    const lines = (text || "").split("\n");
+    const terms = [];
+    const pairs = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      const eqIdx = line.indexOf("=");
+      if (eqIdx !== -1) {
+        const term = line.slice(0, eqIdx).trim();
+        const preferred = line.slice(eqIdx + 1).trim();
+        if (term) {
+          terms.push(term);
+          pairs.push({ term, preferred });
+        }
+      } else {
+        terms.push(line);
+      }
+    }
+    return {
+      hotwords: terms.length > 0 ? terms.join(" ") : null,
+      glossary: pairs
+    };
+  }
+
   // Open (or reopen) the WebSocket for the given session.
   function connectSocket(s) {
     const myGen = s.generation;
@@ -367,6 +400,7 @@
       // helper can process from where we are (and stay ahead).
       const startTime =
         s.video && Number.isFinite(s.video.currentTime) ? s.video.currentTime : 0;
+      const g = parseGlossary(settings.glossary);
       const startMsg = {
         videoId: s.videoId,
         startTime: startTime,
@@ -374,7 +408,11 @@
         engine: settings.engine, // "ollama" | "whisper"
         model: settings.model, // Ollama chat model name
         preBuffer: settings.preBuffer, // bool: helper look-ahead/pre-buffer
-        hotwords: null // reserved; not used by the client yet
+        quality: settings.quality, // "auto" | "max" | "balanced" | "lite"
+        cleanAudio: settings.cleanAudio, // "off" | "light" | "music"
+        diarize: settings.diarize, // bool: speaker diarization
+        hotwords: g.hotwords, // space-joined terms from glossary (or null)
+        glossary: g.glossary // [{term, preferred}, ...] for "=" lines
       };
       try {
         socket.send(JSON.stringify(startMsg));
@@ -791,7 +829,8 @@
 
   function loadSettingsThenInit() {
     chrome.storage.sync.get(
-      ["enabled", "language", "fontSize", "engine", "model", "preBuffer", "autoPause"],
+      ["enabled", "language", "fontSize", "engine", "model", "preBuffer", "autoPause",
+       "quality", "cleanAudio", "diarize", "glossary"],
       (stored) => {
       settings.enabled = stored.enabled !== false; // default true
       settings.language =
@@ -801,6 +840,10 @@
       settings.model = stored.model || "qwen2.5:7b";
       settings.preBuffer = stored.preBuffer !== false; // default true
       settings.autoPause = stored.autoPause !== false; // default true
+      settings.quality = stored.quality || "auto";
+      settings.cleanAudio = stored.cleanAudio || "off";
+      settings.diarize = stored.diarize === true;
+      settings.glossary = stored.glossary || "";
       if (settings.enabled) {
         startSession();
       }
@@ -847,6 +890,22 @@
         gatePlay(session);
         updateCaptionForCurrentTime(session);
       }
+    }
+    if ("quality" in changes) {
+      settings.quality = changes.quality.newValue || "auto";
+      needsReinit = true; // quality is part of the start message → reconnect
+    }
+    if ("cleanAudio" in changes) {
+      settings.cleanAudio = changes.cleanAudio.newValue || "off";
+      needsReinit = true; // cleanAudio is part of the start message → reconnect
+    }
+    if ("diarize" in changes) {
+      settings.diarize = changes.diarize.newValue === true;
+      needsReinit = true; // diarize is part of the start message → reconnect
+    }
+    if ("glossary" in changes) {
+      settings.glossary = changes.glossary.newValue || "";
+      needsReinit = true; // glossary is part of the start message → reconnect
     }
 
     if (!settings.enabled) {

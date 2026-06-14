@@ -260,6 +260,10 @@ async def transcribe_ws(ws: WebSocket) -> None:
         model = req.get("model") or translate_llm.DEFAULT_MODEL
         pre_buffer = bool(req.get("preBuffer"))
         hotwords = req.get("hotwords")
+        quality = req.get("quality") or "auto"
+        clean_audio = req.get("cleanAudio") or "off"
+        diarize = bool(req.get("diarize"))
+        glossary = req.get("glossary") or []  # [{term, preferred}, ...]
 
         if not video_id:
             await ws.send_json({"type": "error", "message": "missing videoId"})
@@ -272,10 +276,20 @@ async def transcribe_ws(ws: WebSocket) -> None:
         # faithful source transcript and translates it with the LLM.
         task = "translate" if engine == "whisper" else "transcribe"
 
+        # Cache variant captures output-affecting dims so different quality/clean/diarize
+        # combos get separate cache files.
+        # TODO(phase C): use resolved whisper model instead of transcribe.MODEL_NAME
+        variant = f"{transcribe.MODEL_NAME}|{clean_audio}|{'diar' if diarize else 'mono'}"
+
         _log(
             f"session video={video_id} start={start_time:.1f} engine={engine} "
-            f"preBuffer={pre_buffer} cookies={audio.cookies_source()}"
+            f"preBuffer={pre_buffer} quality={quality} clean={clean_audio} "
+            f"diarize={diarize} cookies={audio.cookies_source()}"
         )
+        # TODO(phase B): pass glossary to LLM translate prompt
+        # TODO(phase C): use quality to select whisper model/beam preset
+        # TODO(phase D): pass clean_audio to audio pre-processing pipeline
+        # TODO(phase E): pass diarize flag to diarization step
 
         sess.current_time = start_time
 
@@ -283,7 +297,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
         reader_task = asyncio.create_task(_position_reader(ws, sess))
 
         # --- Serve cached segments + load interval coverage -----------------
-        cached = cache.load(video_id, language, task, engine, model)
+        cached = cache.load(video_id, language, task, engine, model, variant=variant)
         covered: list = []
 
         if cached is not None:
@@ -504,6 +518,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 cache.append,
                 video_id, produced, [cursor, window_end],
                 language, eff_task, eff_engine, model,
+                variant,
             )
 
         await ws.send_json({"type": "done"})

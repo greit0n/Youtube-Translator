@@ -16,7 +16,15 @@ const DEFAULT_SETTINGS = {
   // Whether the helper should pre-buffer / look ahead of playback.
   preBuffer: true,
   // Pause playback until subtitles for the current moment are ready (client-side).
-  autoPause: true
+  autoPause: true,
+  // Transcription quality tier (auto|max|balanced|lite). Drives model/beam selection on the helper.
+  quality: "auto",
+  // Audio pre-processing mode (off|light|music). Passed to the helper for denoise/separation.
+  cleanAudio: "off",
+  // Whether to run speaker diarization on the helper side.
+  diarize: false,
+  // Multiline glossary: one entry per line, "term" or "term = preferred". Sent to the helper.
+  glossary: ""
 };
 
 // On install / update, fill in any missing settings without clobbering

@@ -38,10 +38,12 @@ def _key(
     task: str,
     engine: str,
     model: Optional[str],
+    variant: str = "",
 ) -> str:
     lang = language or "auto"
     mdl = (model or "default").replace(os.sep, "_").replace(":", "-")
-    return f"{video_id}__{lang}__{task}__{engine}__{mdl}"
+    vr = (variant or "none").replace(os.sep, "_").replace(":", "-").replace("|", "-")
+    return f"{video_id}__{lang}__{task}__{engine}__{mdl}__{vr}"
 
 
 def _path(
@@ -50,9 +52,10 @@ def _path(
     task: str,
     engine: str,
     model: Optional[str],
+    variant: str = "",
 ) -> str:
     return os.path.join(
-        CACHE_DIR, _key(video_id, language, task, engine, model) + ".json"
+        CACHE_DIR, _key(video_id, language, task, engine, model, variant) + ".json"
     )
 
 
@@ -96,6 +99,7 @@ def load(
     task: str = "translate",
     engine: str = "whisper",
     model: Optional[str] = None,
+    variant: str = "",
 ) -> Optional[Dict]:
     """Return the cached record, or None if not cached / not in the current format.
 
@@ -106,7 +110,7 @@ def load(
     a cache MISS (return None) so they get re-transcribed with correct interval
     coverage — this auto-heals old/poisoned caches.
     """
-    path = _path(video_id, language, task, engine, model)
+    path = _path(video_id, language, task, engine, model, variant)
     if not os.path.exists(path):
         return None
     try:
@@ -132,10 +136,11 @@ def save(
     task: str = "translate",
     engine: str = "whisper",
     model: Optional[str] = None,
+    variant: str = "",
 ) -> None:
     """Persist (overwrite) the segment list and covered intervals atomically."""
     _ensure_dir()
-    path = _path(video_id, language, task, engine, model)
+    path = _path(video_id, language, task, engine, model, variant)
 
     payload = {
         "videoId": video_id,
@@ -160,6 +165,7 @@ def append(
     task: str = "translate",
     engine: str = "whisper",
     model: Optional[str] = None,
+    variant: str = "",
 ) -> None:
     """Merge `new_segments` + union `covered_interval` into the existing cache.
 
@@ -167,7 +173,7 @@ def append(
     duplicates; the result is kept sorted by start. `covered` unions the new
     interval. Safe to call repeatedly as windows complete.
     """
-    existing = load(video_id, language, task, engine, model)
+    existing = load(video_id, language, task, engine, model, variant)
     if existing is None:
         merged = list(new_segments)
         covered = [list(covered_interval)]
@@ -189,6 +195,7 @@ def append(
         task=task,
         engine=engine,
         model=model,
+        variant=variant,
     )
 
 
