@@ -92,7 +92,11 @@ def _build_prompt(
                 keep.append(term)
         if pinned:
             lines.append("")
-            lines.append("Use these exact translations for these terms:")
+            lines.append(
+                "Glossary — translate each source term using the English given. "
+                "When several comma-separated options are listed, choose the ONE "
+                "that best fits the sentence (do not output the whole list):"
+            )
             lines.extend(pinned)
         if keep:
             lines.append("")
