@@ -140,10 +140,14 @@ class SpeakerTracker:
             return False
 
         # Probe importability of the two heavy deps — no real import side-effects.
+        # NB: `import importlib` alone does NOT bind importlib.util; import the
+        # submodule explicitly or find_spec raises AttributeError (-> False).
         try:
-            import importlib
-            importlib.util.find_spec("whisperx")
-            importlib.util.find_spec("pyannote.audio")
+            import importlib.util
+            if importlib.util.find_spec("whisperx") is None:
+                return False
+            if importlib.util.find_spec("pyannote.audio") is None:
+                return False
         except Exception:
             return False
 
@@ -222,10 +226,22 @@ class SpeakerTracker:
         # --- load diarization pipeline -----------------------------------
         try:
             _log("diarize: loading diarization pipeline (first use) …")
-            import whisperx
+            # whisperx 3.8.x exposes the class under whisperx.diarize, not at the
+            # top level (older versions had whisperx.DiarizationPipeline).
+            from whisperx.diarize import DiarizationPipeline
 
-            self._pipeline = whisperx.DiarizationPipeline(
-                use_auth_token=token,
+            # whisperx 3.8.x signature: DiarizationPipeline(model_name=None,
+            # token=None, device=..., cache_dir=None) — the auth kwarg is `token`
+            # (older versions used `use_auth_token`).
+            # Use speaker-diarization-community-1 (pyannote's newer/better model
+            # and whisperx's default). It's self-contained — needs only its own
+            # gated-repo acceptance. (NB: under pyannote.audio 4.x even the older
+            # 3.1 pipeline pulls a PLDA asset from community-1, so accepting
+            # community-1 is required regardless.) The cross-window voice
+            # fingerprint still uses pyannote/embedding (loaded separately below).
+            self._pipeline = DiarizationPipeline(
+                model_name="pyannote/speaker-diarization-community-1",
+                token=token,
                 device=self._device,
             )
             _log(f"diarize: pipeline loaded on {self._device}")
