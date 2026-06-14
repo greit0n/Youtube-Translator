@@ -15,7 +15,8 @@ const DEFAULTS = {
   fontSize: "medium",
   engine: "whisper", // "whisper" | "ollama"
   model: "qwen2.5:7b", // Ollama chat model
-  preBuffer: true
+  preBuffer: true,
+  autoPause: true // pause until subtitles for "now" are ready
 };
 
 // DOM references.
@@ -26,6 +27,7 @@ const engineEl = document.getElementById("engine");
 const modelEl = document.getElementById("model");
 const modelHintEl = document.getElementById("modelHint");
 const preBufferEl = document.getElementById("preBuffer");
+const autoPauseEl = document.getElementById("autoPause");
 const statusDot = document.getElementById("statusDot");
 const statusTitle = document.getElementById("statusTitle");
 const statusDetail = document.getElementById("statusDetail");
@@ -45,6 +47,7 @@ function loadSettings() {
     const engine = stored.engine === "ollama" ? "ollama" : "whisper";
     const model = stored.model || DEFAULTS.model;
     const preBuffer = stored.preBuffer !== false; // default true
+    const autoPause = stored.autoPause !== false; // default true
 
     enabledEl.checked = enabled;
     // language null -> "auto" option value
@@ -52,6 +55,7 @@ function loadSettings() {
     fontSizeEl.value = fontSize;
     engineEl.value = engine;
     preBufferEl.checked = preBuffer;
+    autoPauseEl.checked = autoPause;
 
     // Remember the desired model so it can be selected after /models loads.
     desiredModel = model;
@@ -99,6 +103,10 @@ modelEl.addEventListener("change", () => {
 
 preBufferEl.addEventListener("change", () => {
   save("preBuffer", preBufferEl.checked);
+});
+
+autoPauseEl.addEventListener("change", () => {
+  save("autoPause", autoPauseEl.checked);
 });
 
 // ---- Ollama model list ---------------------------------------------------

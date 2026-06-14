@@ -289,6 +289,12 @@ async def transcribe_ws(ws: WebSocket) -> None:
         if cached is not None:
             covered = cached["covered"]
             await ws.send_json({"type": "status", "message": "cached"})
+            # Tell the client which regions are already transcribed (incl. silent
+            # ones) so its playback gate doesn't hold on an already-done spot.
+            for iv in covered:
+                await ws.send_json(
+                    {"type": "progress", "start": iv[0], "until": iv[1]}
+                )
             for seg in cache.filter_from(cached["segments"], start_time):
                 await ws.send_json(
                     {
@@ -490,7 +496,10 @@ async def transcribe_ws(ws: WebSocket) -> None:
             # Mark the WHOLE window covered (even if silent) so we never reprocess
             # it, and persist incrementally.
             covered = cache.merge_intervals(covered + [[cursor, window_end]])
-            await ws.send_json({"type": "progress", "until": window_end})
+            # `start` lets the client rebuild coverage intervals for its gate.
+            await ws.send_json(
+                {"type": "progress", "start": cursor, "until": window_end}
+            )
             await asyncio.to_thread(
                 cache.append,
                 video_id, produced, [cursor, window_end],

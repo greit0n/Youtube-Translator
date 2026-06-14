@@ -14,7 +14,9 @@ const DEFAULT_SETTINGS = {
   // Ollama chat model used when engine === "ollama".
   model: "qwen2.5:7b",
   // Whether the helper should pre-buffer / look ahead of playback.
-  preBuffer: true
+  preBuffer: true,
+  // Pause playback until subtitles for the current moment are ready (client-side).
+  autoPause: true
 };
 
 // On install / update, fill in any missing settings without clobbering

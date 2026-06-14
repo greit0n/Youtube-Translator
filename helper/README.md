@@ -112,7 +112,9 @@ download + load finishes. After that it flips to `true`. Example:
       `loading model`, `transcribing`, `cached`, or the Ollama-fallback notice.
     - `{"type":"segment","start":<float>,"end":<float>,"text":"<english>"}` —
       absolute video timestamps.
-    - `{"type":"progress","until":<float>}` — transcribed-up-to marker.
+    - `{"type":"progress","start":<float>,"until":<float>}` — a covered
+      interval. `start` lets the client rebuild coverage for its playback gate;
+      on a cache hit the server replays one frame per cached interval first.
     - `{"type":"done"}`
     - `{"type":"error","message":"..."}`
 

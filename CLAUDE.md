@@ -66,7 +66,8 @@ Engine/model/language/preBuffer are settings in `chrome.storage.sync`, sent in t
 
 - **Client → server, first message:** `{videoId, startTime, language(null=auto), engine, model, preBuffer, hotwords}`
 - **Client → server, ongoing:** `{type:"position", currentTime}` every ~4s and on seek (drives lead-following).
-- **Server → client:** `{type:"status",message}`, `{type:"segment",start,end,text}` (absolute timestamps), `{type:"progress",until}`, `{type:"done"}`, `{type:"error",message}`.
+- **Server → client:** `{type:"status",message}`, `{type:"segment",start,end,text}` (absolute timestamps), `{type:"progress",start,until}` (a covered interval; `start` lets the client rebuild coverage for its playback gate — on a cache hit the server replays one progress frame per cached interval before streaming segments), `{type:"done"}`, `{type:"error",message}`.
+- **Client-side playback gate (`content.js`):** when the `autoPause` setting is on, the content script mirrors the `progress` intervals and pauses the `<video>` whenever the current moment isn't covered yet, resuming once coverage reaches `currentTime + ~1.5s`. It distinguishes transcribed-but-silent (play) from not-yet-transcribed (hold), never fights a manual pause/play, and on a genuine stuck fetch stays paused with a "waiting for subtitles" message (manual play overrides).
 - **`GET /health`** → `{status,model_loaded,cuda,device,ollama,cookies}`. **`GET /models`** → installed Ollama chat models (embeddings filtered). **`POST /reset` `{videoId}`** → `cache.clear` for that video (powers the popup's "Re-translate this video" button).
 
 ## Cache

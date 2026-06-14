@@ -26,12 +26,20 @@
     fontSize: "medium",
     engine: "whisper", // "whisper" (fast built-in) | "ollama" (faithful LLM)
     model: "qwen2.5:7b", // Ollama chat model (used when engine === "ollama")
-    preBuffer: true // ask the helper to look ahead / pre-buffer
+    preBuffer: true, // ask the helper to look ahead / pre-buffer
+    autoPause: true // pause playback until subtitles for "now" are ready
   };
 
   // How often we report playback position to the helper so it can keep its
   // lead-following window ~90s ahead and pre-buffer.
   const POSITION_INTERVAL_MS = 4000;
+
+  // Playback gate: when auto-pause is on we hold the video whenever the current
+  // moment hasn't been transcribed yet, and resume once coverage reaches a bit
+  // past it (hysteresis avoids pause/play flicker on the boundary).
+  const RESUME_MARGIN = 1.5; // seconds of covered cushion required to resume
+  const COVER_EPS = 0.05; // float slop for interval membership
+  const WAIT_MSG = "⏳ waiting for subtitles…";
 
   // The video session currently active. Encapsulates everything that must be
   // torn down when we navigate away or re-init: the socket, the buffered
@@ -249,6 +257,18 @@
       s.video.removeEventListener("timeupdate", s.onTimeUpdate);
       s.video.removeEventListener("seeking", s.onTimeUpdate);
     }
+    // Remove the gate's play/pause listeners and never leave a video stuck on a
+    // pause WE issued — resume it so the page isn't frozen after teardown.
+    if (s.video && s.onPause) s.video.removeEventListener("pause", s.onPause);
+    if (s.video && s.onPlay) s.video.removeEventListener("play", s.onPlay);
+    if (s.video && s.pausedByUs) {
+      try {
+        const p = s.video.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch (_e) {
+        /* ignore */
+      }
+    }
     // Remove the position-reporting seek listeners.
     if (s.video && s.onSeekPosition) {
       s.video.removeEventListener("seeking", s.onSeekPosition);
@@ -415,6 +435,16 @@
           updateCaptionForCurrentTime(s);
         }
         break;
+      case "progress":
+        // Coverage frontier advanced (or cached coverage replayed at start).
+        // Track it so the playback gate knows what's transcribed, and re-evaluate
+        // (this is what resumes playback once "now" becomes covered).
+        if (typeof msg.until === "number") {
+          const start = typeof msg.start === "number" ? msg.start : msg.until;
+          mergeCovered(s, start, msg.until);
+          updateGate(s);
+        }
+        break;
       case "done":
         s.done = true;
         break;
@@ -445,11 +475,107 @@
     }, delay);
   }
 
+  // ---- Playback gate (subtitle-aware pause/resume) ------------------------
+
+  // Merge [start, until] into the session's covered intervals, kept sorted and
+  // non-overlapping. Coverage is fed by the helper's `progress` frames (incl.
+  // the cached intervals it replays on session start).
+  function mergeCovered(s, start, until) {
+    if (!(until > start)) return;
+    const ivs = s.coveredIntervals;
+    ivs.push([start, until]);
+    ivs.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const iv of ivs) {
+      const last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1] + COVER_EPS) {
+        if (iv[1] > last[1]) last[1] = iv[1];
+      } else {
+        merged.push([iv[0], iv[1]]);
+      }
+    }
+    s.coveredIntervals = merged;
+  }
+
+  // End of the covered interval containing `t`, or null if `t` isn't covered.
+  function coveredEndAt(s, t) {
+    for (const [a, b] of s.coveredIntervals) {
+      if (t >= a - COVER_EPS && t < b + COVER_EPS) return b;
+      if (a > t) break; // sorted; no later interval can contain t
+    }
+    return null;
+  }
+
+  // Our own pause/play, flagged so the play/pause event handlers can tell our
+  // actions apart from the user's. We only act when it actually changes state
+  // (calling pause() on a paused video fires no event, which would desync the
+  // flag), so each self-action maps to exactly one consumed event.
+  function gatePause(s) {
+    if (!s.video || s.video.paused) return;
+    s.selfAction = true;
+    s.video.pause();
+  }
+  function gatePlay(s) {
+    if (!s.video || !s.video.paused) return;
+    s.selfAction = true;
+    const p = s.video.play();
+    // On success the 'play' event consumes selfAction; if play() is rejected
+    // (autoplay policy) no event fires, so clear the flag here to avoid desync.
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {
+        s.selfAction = false;
+      });
+    }
+  }
+
+  // The decision: pause when "now" isn't covered, resume when it is (+margin).
+  // Called on timeupdate/seeking and whenever coverage grows.
+  function updateGate(s) {
+    if (!settings.autoPause) return;
+    if (!s || s.generation !== sessionGeneration || !s.video) return;
+    const t = s.video.currentTime;
+    if (!Number.isFinite(t)) return;
+
+    const covEnd = coveredEndAt(s, t);
+    const coveredNow = covEnd !== null;
+
+    if (s.pausedByUs) {
+      // Holding: resume once covered with cushion (or covered to the video end).
+      const dur = Number.isFinite(s.video.duration) ? s.video.duration : Infinity;
+      const enough =
+        coveredNow && (covEnd >= t + RESUME_MARGIN || covEnd >= dur - 0.1);
+      if (enough) {
+        s.pausedByUs = false;
+        s.userOverride = false;
+        gatePlay(s);
+        updateCaptionForCurrentTime(s);
+      }
+      return;
+    }
+
+    if (s.userOverride) {
+      // User played through our hold: don't re-pause until coverage catches up.
+      if (coveredNow) s.userOverride = false;
+      return;
+    }
+
+    if (!coveredNow && !s.video.paused) {
+      s.pausedByUs = true;
+      gatePause(s);
+      updateCaptionForCurrentTime(s); // shows WAIT_MSG while held
+    }
+  }
+
   // Look up and render the caption for the video's current time.
   function updateCaptionForCurrentTime(s) {
     if (!s || !s.video || !captionEl) return;
     // Don't overwrite a sticky error message.
     if (captionEl.classList.contains("ytx-error")) return;
+    // While the gate is holding, the overlay always shows the waiting message.
+    if (s.pausedByUs) {
+      renderStatus(WAIT_MSG, false);
+      return;
+    }
 
     const t = s.video.currentTime;
     const seg = findSegmentAt(s.segments, t);
@@ -505,20 +631,50 @@
       done: false,
       onTimeUpdate: null,
       positionTimer: null, // setInterval handle for position reporting
-      onSeekPosition: null // seek listener that sends immediate positions
+      onSeekPosition: null, // seek listener that sends immediate positions
+      coveredIntervals: [], // [[start, until], ...] transcribed regions (gate)
+      pausedByUs: false, // true while the gate is holding playback
+      userOverride: false, // user played through a hold; suppress re-pausing
+      selfAction: false, // our own pause()/play() in flight (vs the user's)
+      onPlay: null, // user-intent detection listeners
+      onPause: null
     };
     session = s;
 
     ensureOverlay(player);
     syncFullscreenClass();
 
-    // Bind timeupdate + seeking for caption lookup.
+    // Bind timeupdate + seeking for caption lookup + playback gating.
     s.onTimeUpdate = () => {
       if (s.generation !== sessionGeneration) return;
+      updateGate(s);
       updateCaptionForCurrentTime(s);
     };
     video.addEventListener("timeupdate", s.onTimeUpdate);
     video.addEventListener("seeking", s.onTimeUpdate);
+
+    // User-intent detection for the gate: distinguish our pause/play from the
+    // user's so we never fight a manual action.
+    s.onPause = () => {
+      if (s.generation !== sessionGeneration) return;
+      if (s.selfAction) { s.selfAction = false; return; } // our pause
+      s.pausedByUs = false; // user paused -> we won't auto-resume it
+    };
+    s.onPlay = () => {
+      if (s.generation !== sessionGeneration) return;
+      if (s.selfAction) { s.selfAction = false; return; } // our play
+      if (s.pausedByUs) {
+        // User is overriding an active hold: respect it and back off until
+        // coverage catches up to the playhead again.
+        s.pausedByUs = false;
+        if (coveredEndAt(s, s.video.currentTime) === null) s.userOverride = true;
+      }
+      // A normal play on a fresh/uncovered spot falls through so updateGate
+      // (next tick / below) can hold at the start as designed.
+      updateGate(s);
+    };
+    video.addEventListener("pause", s.onPause);
+    video.addEventListener("play", s.onPlay);
 
     connectSocket(s);
   }
@@ -594,7 +750,7 @@
 
   function loadSettingsThenInit() {
     chrome.storage.sync.get(
-      ["enabled", "language", "fontSize", "engine", "model", "preBuffer"],
+      ["enabled", "language", "fontSize", "engine", "model", "preBuffer", "autoPause"],
       (stored) => {
       settings.enabled = stored.enabled !== false; // default true
       settings.language =
@@ -603,6 +759,7 @@
       settings.engine = stored.engine === "ollama" ? "ollama" : "whisper";
       settings.model = stored.model || "qwen2.5:7b";
       settings.preBuffer = stored.preBuffer !== false; // default true
+      settings.autoPause = stored.autoPause !== false; // default true
       if (settings.enabled) {
         startSession();
       }
@@ -638,6 +795,17 @@
     if ("preBuffer" in changes) {
       settings.preBuffer = changes.preBuffer.newValue !== false;
       needsReinit = true; // preBuffer is part of the start message → reconnect
+    }
+    if ("autoPause" in changes) {
+      settings.autoPause = changes.autoPause.newValue !== false;
+      // Client-only behavior toggle — no reconnect. If turning it OFF while
+      // we're holding the video, release it immediately.
+      if (!settings.autoPause && session && session.pausedByUs) {
+        session.pausedByUs = false;
+        session.userOverride = false;
+        gatePlay(session);
+        updateCaptionForCurrentTime(session);
+      }
     }
 
     if (!settings.enabled) {
