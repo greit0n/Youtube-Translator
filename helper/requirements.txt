@@ -1,0 +1,6 @@
+faster-whisper
+yt-dlp
+fastapi
+uvicorn[standard]
+websockets
+requests

@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube English Subtitles</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        width: 280px;
+        margin: 0;
+        padding: 14px 16px 16px;
+        font-family: Roboto, Arial, sans-serif;
+        font-size: 14px;
+        background: #ffffff;
+        color: #0f0f0f;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #212121;
+          color: #f1f1f1;
+        }
+        select {
+          background: #303030;
+          color: #f1f1f1;
+          border-color: #555;
+        }
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 12px;
+        font-weight: 600;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      label {
+        font-weight: 500;
+      }
+      select {
+        padding: 4px 6px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        font-size: 13px;
+        min-width: 130px;
+      }
+      /* Toggle switch */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #ccc;
+        border-radius: 24px;
+        transition: 0.2s;
+      }
+      .slider::before {
+        content: "";
+        position: absolute;
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background: #fff;
+        border-radius: 50%;
+        transition: 0.2s;
+      }
+      input:checked + .slider {
+        background: #cc0000;
+      }
+      input:checked + .slider::before {
+        transform: translateX(20px);
+      }
+      /* Status indicator */
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: rgba(127, 127, 127, 0.12);
+        font-size: 12px;
+        line-height: 1.4;
+        margin-top: 4px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #999;
+        flex: 0 0 auto;
+      }
+      .dot.connected {
+        background: #2ecc40;
+      }
+      .dot.disconnected {
+        background: #ff4136;
+      }
+      .status-text strong {
+        display: block;
+      }
+      .status-text .detail {
+        opacity: 0.75;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid rgba(127, 127, 127, 0.25);
+        margin: 4px 0 14px;
+      }
+      /* Small inline hint shown when no usable Ollama chat model exists. */
+      .hint {
+        font-size: 11px;
+        color: #cc6600;
+        margin: -8px 0 14px;
+        line-height: 1.3;
+      }
+      @media (prefers-color-scheme: dark) {
+        .hint {
+          color: #ffb066;
+        }
+      }
+      /* Greyed-out look for a disabled control (e.g. model when Whisper). */
+      select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      /* Re-translate button */
+      .reset-btn {
+        width: 100%;
+        margin-top: 10px;
+        padding: 8px 10px;
+        border: 1px solid rgba(127, 127, 127, 0.35);
+        border-radius: 6px;
+        background: rgba(127, 127, 127, 0.12);
+        color: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .reset-btn:hover:not(:disabled) {
+        background: rgba(127, 127, 127, 0.22);
+      }
+      .reset-btn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .reset-hint {
+        font-size: 11px;
+        opacity: 0.6;
+        margin: 6px 2px 0;
+        line-height: 1.3;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>YouTube → English Subtitles</h1>
+
+    <div class="row">
+      <label for="enabled">Enable subtitles</label>
+      <label class="switch">
+        <input type="checkbox" id="enabled" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="row">
+      <label for="language">Source language</label>
+      <select id="language">
+        <option value="auto">Auto-detect</option>
+        <option value="cs">Czech (cs)</option>
+        <option value="de">German (de)</option>
+        <option value="es">Spanish (es)</option>
+        <option value="fr">French (fr)</option>
+        <option value="it">Italian (it)</option>
+        <option value="pt">Portuguese (pt)</option>
+        <option value="ru">Russian (ru)</option>
+        <option value="pl">Polish (pl)</option>
+        <option value="uk">Ukrainian (uk)</option>
+        <option value="ja">Japanese (ja)</option>
+        <option value="ko">Korean (ko)</option>
+        <option value="zh">Chinese (zh)</option>
+        <option value="ar">Arabic (ar)</option>
+        <option value="hi">Hindi (hi)</option>
+        <option value="tr">Turkish (tr)</option>
+        <option value="nl">Dutch (nl)</option>
+        <option value="sv">Swedish (sv)</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label for="engine">Translation engine</label>
+      <select id="engine">
+        <option value="ollama">Faithful (Ollama)</option>
+        <option value="whisper">Fast (Whisper)</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label for="model">Ollama model</label>
+      <select id="model"></select>
+    </div>
+    <div class="hint" id="modelHint" hidden>
+      No chat model found — run: ollama pull qwen2.5:7b
+    </div>
+
+    <div class="row">
+      <label for="preBuffer">Pre-buffer</label>
+      <label class="switch">
+        <input type="checkbox" id="preBuffer" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="row">
+      <label for="fontSize">Caption size</label>
+      <select id="fontSize">
+        <option value="small">Small</option>
+        <option value="medium">Medium</option>
+        <option value="large">Large</option>
+      </select>
+    </div>
+
+    <hr />
+
+    <div class="status" id="status">
+      <span class="dot" id="statusDot"></span>
+      <span class="status-text">
+        <strong id="statusTitle">Checking helper…</strong>
+        <span class="detail" id="statusDetail">127.0.0.1:8765</span>
+      </span>
+    </div>
+
+    <button id="resetBtn" class="reset-btn" type="button"
+      title="Clear this video's saved transcript and translate it again from scratch">
+      ♻ Re-translate this video
+    </button>
+    <div class="reset-hint">
+      Use if captions look wrong, are missing the start, or got stuck.
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YouTube → English Subtitles · Setup &amp; Usage Guide</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --panel-2: #1f232c;
+    --ink: #e7eaf0;
+    --ink-soft: #aab2c0;
+    --accent: #ff4d4d;
+    --accent-2: #5b8cff;
+    --green: #2ecc71;
+    --amber: #f5a623;
+    --border: #2a2f3a;
+    --code-bg: #0b0d12;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(180deg, #0c0e13 0%, #0f1115 100%);
+    color: var(--ink);
+    line-height: 1.65;
+    font-size: 16px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 22px 80px; }
+
+  header.hero {
+    text-align: center;
+    padding: 56px 22px 40px;
+    background: radial-gradient(900px 320px at 50% -40px, rgba(255,77,77,0.18), transparent 70%);
+    border-bottom: 1px solid var(--border);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(255,77,77,0.4);
+    border-radius: 999px;
+    padding: 5px 14px;
+    margin-bottom: 18px;
+    background: rgba(255,77,77,0.07);
+  }
+  header.hero h1 {
+    margin: 0 0 10px;
+    font-size: 2.5rem;
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  header.hero h1 .play {
+    color: var(--accent);
+  }
+  header.hero p {
+    margin: 0 auto;
+    max-width: 620px;
+    color: var(--ink-soft);
+    font-size: 1.08rem;
+  }
+
+  nav.toc {
+    margin: 34px auto 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 22px;
+  }
+  nav.toc h2 {
+    margin: 0 0 10px;
+    font-size: 0.82rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  nav.toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 30px; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc a { color: var(--accent-2); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+
+  section { margin-top: 44px; }
+  h2.sec {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  h2.sec .num {
+    display: inline-grid;
+    place-items: center;
+    width: 30px; height: 30px;
+    margin-right: 10px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    vertical-align: middle;
+  }
+  h3 { font-size: 1.12rem; margin: 26px 0 8px; }
+  p { margin: 12px 0; }
+  a { color: var(--accent-2); }
+
+  ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 18px 0; }
+  ol.steps > li {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px 18px 64px;
+    margin: 14px 0;
+  }
+  ol.steps > li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: 18px; top: 18px;
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    background: var(--accent-2);
+    color: #fff;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+  ol.steps > li strong { color: #fff; }
+
+  ul.plain { padding-left: 22px; }
+  ul.plain li { margin: 7px 0; }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-2);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 12px 0;
+    font-size: 0.92rem;
+  }
+  code {
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    background: rgba(91,140,255,0.14);
+    color: #cfe0ff;
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.9em;
+  }
+  pre code { background: none; color: #d6e2ff; padding: 0; }
+  pre .cmt { color: #6b7585; }
+
+  .callout {
+    border-radius: 10px;
+    padding: 14px 16px 14px 50px;
+    margin: 16px 0;
+    position: relative;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+  }
+  .callout::before {
+    position: absolute;
+    left: 16px; top: 14px;
+    font-size: 1.15rem;
+  }
+  .callout p { margin: 4px 0; }
+  .callout.tip { border-color: rgba(46,204,113,0.4); background: rgba(46,204,113,0.08); }
+  .callout.tip::before { content: "💡"; }
+  .callout.warn { border-color: rgba(245,166,35,0.45); background: rgba(245,166,35,0.09); }
+  .callout.warn::before { content: "⚠️"; }
+  .callout.info { border-color: rgba(91,140,255,0.4); background: rgba(91,140,255,0.08); }
+  .callout.info::before { content: "ℹ️"; }
+  .callout strong { color: #fff; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.95rem;
+    background: var(--panel);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--panel-2);
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  tr:last-child td { border-bottom: none; }
+  td.problem { color: #ffc7c7; font-weight: 600; white-space: nowrap; }
+
+  .pill {
+    display: inline-block;
+    font-size: 0.78rem;
+    padding: 2px 9px;
+    border-radius: 999px;
+    margin-right: 6px;
+  }
+  .pill.green { background: rgba(46,204,113,0.18); color: #7fe6a8; border: 1px solid rgba(46,204,113,0.4); }
+  .pill.blue  { background: rgba(91,140,255,0.18); color: #aac4ff; border: 1px solid rgba(91,140,255,0.4); }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+  }
+  @media (max-width: 600px) {
+    nav.toc ol { columns: 1; }
+    header.hero h1 { font-size: 1.9rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="badge">Personal Tool · 100% Free &amp; Local</div>
+  <h1><span class="play">▶</span> YouTube → English Subtitles</h1>
+  <p>Your private setup &amp; usage manual. Overlay AI-generated English subtitles on any YouTube video, translated from any spoken language — running entirely on your own GPU, no paid APIs, no cloud.</p>
+</header>
+
+<div class="wrap">
+
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#what">What this is / how it works</a></li>
+      <li><a href="#prereqs">Prerequisites</a></li>
+      <li><a href="#step1">Step 1 — Start the local helper</a></li>
+      <li><a href="#step2">Step 2 — Install the extension</a></li>
+      <li><a href="#step3">Step 3 — Watch a video</a></li>
+      <li><a href="#cookies">Age-restricted videos &amp; login</a></li>
+      <li><a href="#trouble">Troubleshooting</a></li>
+      <li><a href="#notes">Notes &amp; future</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============ 1 ============ -->
+  <section id="what">
+    <h2 class="sec"><span class="num">1</span>What this is / how it works</h2>
+    <p>This is a two-part personal tool that overlays <strong>auto-generated English subtitles</strong> onto YouTube videos, translated live from whatever language is being spoken. It runs completely <strong>free and locally</strong> on your computer's GPU — no subscriptions, no API keys, nothing leaves your machine.</p>
+
+    <p>There are two pieces working together:</p>
+    <ul class="plain">
+      <li><span class="pill blue">helper</span> A small Python program (in the <code>helper/</code> folder). It uses <code>yt-dlp</code> + <code>ffmpeg</code> to grab the video's audio and <code>faster-whisper</code> (the <code>large-v3</code> model) on your GPU to transcribe the speech, then hands it to a local <strong>Ollama</strong> LLM to translate into English. It listens on <code>http://127.0.0.1:8765</code>.</li>
+      <li><span class="pill blue">extension</span> A Chrome extension (in the <code>extension/</code> folder) that draws those English subtitles over the YouTube player, perfectly synced to playback.</li>
+    </ul>
+
+    <h3>Two-stage translation (new default)</h3>
+    <p>Translation now happens in <strong>two stages</strong> for far more faithful results:</p>
+    <ul class="plain">
+      <li><strong>Stage 1 — Transcribe.</strong> Whisper (<code>large-v3</code>) writes down what's actually spoken, in the <em>original</em> language.</li>
+      <li><strong>Stage 2 — Translate.</strong> A local <strong>Ollama</strong> chat model (default <code>qwen2.5:7b</code>) translates that into natural English while <strong>preserving profanity, slang, and names</strong> instead of sanitizing them.</li>
+    </ul>
+    <p>You choose this in the popup under <strong>Translation engine</strong>: <em>Faithful (Ollama)</em> is the new default. If Ollama isn't running, the tool automatically <strong>falls back</strong> to Whisper's own built-in translation (the old <em>Fast</em> mode) so you still get subtitles.</p>
+
+    <h3>Fast start &amp; pre-buffer</h3>
+    <p>The helper no longer downloads the whole video first. Instead it fetches and translates audio in <strong>rolling windows</strong> starting from your current position, so the first subtitles appear within a <strong>few seconds</strong> (it used to take up to a minute on long videos). With the <strong>Pre-buffer</strong> toggle on (the default), it starts building subtitles the moment you open a video — before you even press play.</p>
+
+    <div class="callout info">
+      <p><strong>The first run downloads a ~3 GB Whisper model</strong>, and the first Ollama model you pull is ~5 GB. Both happen once, then load from disk and start quickly.</p>
+    </div>
+
+    <div class="callout tip">
+      <p>To keep lag near zero, the helper transcribes and translates <strong>slightly ahead</strong> of where you're watching, so subtitles are ready by the time playback reaches them.</p>
+    </div>
+
+    <div class="callout warn">
+      <p><strong>VODs (regular videos) only for now.</strong> Live-stream support is a planned future feature.</p>
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section id="prereqs">
+    <h2 class="sec"><span class="num">2</span>Prerequisites</h2>
+    <p>Before you start, make sure your PC has the following. (Yours already does — this is just the checklist.)</p>
+    <ul class="plain">
+      <li><strong>Windows</strong> — you're on Windows 11. ✅</li>
+      <li><strong>A CUDA-capable NVIDIA GPU</strong> — your <strong>RTX 5070 Ti</strong> is perfect for this. ✅</li>
+      <li><strong>Python 3.10 or newer</strong> installed.</li>
+      <li><strong>ffmpeg</strong> installed and on your <code>PATH</code> — <em>now required</em> (it's used to seek into the video and extract the audio windows).</li>
+      <li><strong>Ollama</strong> installed and running — powers the new faithful translation. Get it from <a href="https://ollama.com">ollama.com</a>.</li>
+    </ul>
+
+    <h3>Check Python and ffmpeg</h3>
+    <p>Open a terminal (PowerShell or Command Prompt) and run:</p>
+    <pre><code>python --version
+ffmpeg -version</code></pre>
+    <p>If both print version numbers, you're good. If <code>python</code> isn't recognized, install Python 3.10+ from <a href="https://www.python.org/downloads/">python.org</a> and tick <em>“Add Python to PATH”</em> during setup.</p>
+
+    <h3>Installing ffmpeg on Windows</h3>
+    <p>ffmpeg is required now, so don't skip this. The easiest way is with <code>winget</code>:</p>
+    <pre><code>winget install Gyan.FFmpeg</code></pre>
+    <p>Alternatively, download a build from <a href="https://www.gyan.dev/ffmpeg/builds/">gyan.dev</a>, unzip it, and add its <code>bin</code> folder to your <code>PATH</code>.</p>
+
+    <div class="callout warn">
+      <p>After installing ffmpeg, <strong>open a fresh terminal</strong> before re-running <code>ffmpeg -version</code> — a new terminal is needed to pick up the updated <code>PATH</code>.</p>
+    </div>
+
+    <h3>Installing Ollama &amp; pulling a translation model</h3>
+    <p>Download and install Ollama from <a href="https://ollama.com">ollama.com</a>. Once installed it runs in the background. Then pull the default chat model used for translation:</p>
+    <pre><code>ollama pull qwen2.5:7b</code></pre>
+    <p>That's a ~5 GB download (once). On a 16 GB GPU it runs comfortably <strong>alongside</strong> Whisper. Confirm Ollama is up and the model is there:</p>
+    <pre><code>ollama list</code></pre>
+
+    <div class="callout warn">
+      <p><strong>Your existing <code>qwen3-embedding</code> model will NOT work for translation.</strong> Embedding models only turn text into vectors — they can't generate translations. You need a <em>chat</em> model like <code>qwen2.5:7b</code>.</p>
+    </div>
+    <div class="callout info">
+      <p>If Ollama isn't installed or running, the tool still works — it just falls back to Whisper's built-in (less faithful) translation.</p>
+    </div>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section id="step1">
+    <h2 class="sec"><span class="num">3</span>Step 1 — Set up &amp; start the local helper</h2>
+    <ol class="steps">
+      <li>
+        <strong>Open a terminal in the <code>helper/</code> folder.</strong>
+        <p>In File Explorer, navigate into the <code>helper</code> folder, then type <code>cmd</code> (or <code>powershell</code>) in the address bar and press Enter. The terminal opens right in that folder.</p>
+      </li>
+      <li>
+        <strong>Install the dependencies.</strong> (One time, or whenever they change.)
+        <pre><code>pip install -r requirements.txt</code></pre>
+      </li>
+      <li>
+        <strong>Start the helper.</strong>
+        <pre><code>python server.py</code></pre>
+        <p>On the <em>very first</em> start, this downloads the <strong>~3 GB</strong> <code>large-v3</code> model. Give it a few minutes — progress shows in the terminal.</p>
+      </li>
+      <li>
+        <strong>Make sure Ollama is running.</strong>
+        <p>For faithful translation, Ollama needs to be running with a chat model pulled. If you installed it (see <a href="#prereqs">Prerequisites</a>), it usually starts on its own — confirm with <code>ollama list</code> and check <code>qwen2.5:7b</code> is listed. If it's not running, the helper quietly falls back to Whisper's built-in translation.</p>
+      </li>
+      <li>
+        <strong>Wait until it's ready.</strong>
+        <p>The helper is ready once the terminal prints that it's listening on <code>127.0.0.1:8765</code>.</p>
+      </li>
+    </ol>
+
+    <div class="callout warn">
+      <p><strong>Leave this terminal running</strong> the whole time you're watching videos. Closing it stops the helper, and subtitles will stop working. Minimize it and forget about it.</p>
+    </div>
+    <div class="callout tip">
+      <p>Want to confirm your GPU is being used? Watch the startup logs — they'll mention <code>CUDA</code> when the GPU is active (rather than <code>CPU</code>).</p>
+    </div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section id="step2">
+    <h2 class="sec"><span class="num">4</span>Step 2 — Install the Chrome extension</h2>
+    <p>You only need to do this once.</p>
+    <ol class="steps">
+      <li>
+        <strong>Open the extensions page.</strong> In Chrome, go to:
+        <pre><code>chrome://extensions</code></pre>
+      </li>
+      <li><strong>Enable Developer mode</strong> using the toggle in the top-right corner.</li>
+      <li><strong>Click “Load unpacked.”</strong> A button appears on the left after Developer mode is on.</li>
+      <li><strong>Select the <code>extension/</code> folder</strong> from this project. The extension installs immediately and its icon appears in your toolbar.</li>
+    </ol>
+    <div class="callout tip">
+      <p>Pin the extension to your toolbar (click the puzzle-piece icon → pin) so it's always one click away while watching.</p>
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section id="step3">
+    <h2 class="sec"><span class="num">5</span>Step 3 — Watch a video</h2>
+    <p>With the helper running (Step 1) and the extension installed (Step 2), you're ready to go.</p>
+    <ol class="steps">
+      <li><strong>Open any YouTube video.</strong></li>
+      <li>
+        <strong>Click the extension icon</strong> to open its settings popup.
+        <p>You should see a green <span class="pill green">● Connected</span> status — that confirms the popup found your running helper.</p>
+      </li>
+      <li><strong>Make sure it's set to “Enabled.”</strong></li>
+      <li><strong>Leave the language on “Auto”</strong> so it detects the spoken language automatically — or pick one manually (e.g. Czech) if you prefer.</li>
+      <li>
+        <strong>Pick a Translation engine.</strong>
+        <p>Leave it on <strong>Faithful (Ollama)</strong> (the default) for the most accurate, uncensored translations. <strong>Fast (Whisper built-in)</strong> skips Ollama and uses Whisper's own translation — quicker, but it tends to clean up slang and profanity.</p>
+      </li>
+      <li>
+        <strong>Choose the Ollama model.</strong>
+        <p>Use the <strong>Ollama model</strong> dropdown to pick the chat model for translation — <code>qwen2.5:7b</code> is the recommended default. If the dropdown is empty, you haven't pulled a model yet: run <code>ollama pull qwen2.5:7b</code> and reopen the popup.</p>
+      </li>
+      <li>
+        <strong>Leave Pre-buffer on.</strong>
+        <p>With <strong>Pre-buffer</strong> on (the default), subtitles start building the moment the video page loads, so they're ready almost instantly when you hit play.</p>
+      </li>
+      <li><strong>Pick a caption size</strong> that's comfortable to read.</li>
+      <li><strong>Press play.</strong> English subtitles appear overlaid on the player, synced to playback. 🎉</li>
+    </ol>
+    <div class="callout info">
+      <p>If the status shows <strong>not connected</strong>, the helper isn't running — jump back to <a href="#step1">Step 1</a> and start <code>python server.py</code>.</p>
+    </div>
+    <div class="callout info">
+      <p>Hit a <strong>🔒 “Age-restricted video needs your YouTube login”</strong> error? That video needs your YouTube login — see <a href="#cookies">Age-restricted videos &amp; login (cookies.txt)</a> for the one-time fix.</p>
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section id="cookies">
+    <h2 class="sec"><span class="num">6</span>Age-restricted videos &amp; login (cookies.txt)</h2>
+    <p>Most YouTube videos work with <strong>no setup at all</strong>. But <strong>age-restricted</strong> videos — and, occasionally, a YouTube “confirm you're not a bot” check — require <em>your</em> YouTube login to download. When this happens, the helper shows an error like:</p>
+    <pre><code>🔒 Age-restricted video needs your YouTube login. Add a cookies.txt</code></pre>
+    <p>The fix is to give the helper a one-time export of your YouTube login as a <code>cookies.txt</code> file.</p>
+
+    <div class="callout info">
+      <p><strong>Why a file, and not just “read my Chrome login”?</strong> On Windows, software can't read Chrome's cookies directly anymore — Chrome 127+ encrypts them with <em>App-Bound Encryption</em>, and the cookie database is locked while Chrome is running. So instead you export a <code>cookies.txt</code> from the browser with a small extension.</p>
+    </div>
+
+    <h3>Set it up (one time)</h3>
+    <ol class="steps">
+      <li>
+        <strong>Install the “Get cookies.txt LOCALLY” extension.</strong>
+        <p>In Chrome, open the Chrome Web Store and add the extension named exactly <strong>“Get cookies.txt LOCALLY”</strong>. It's open-source and reads cookies locally through Chrome's extension API — it <strong>never uploads them</strong>. (Make sure you pick the one named <em>LOCALLY</em>.)</p>
+      </li>
+      <li>
+        <strong>Be logged into YouTube in Chrome.</strong>
+        <p>Use an account that's <strong>18+</strong> for age-restricted content. Chrome can stay open the whole time.</p>
+      </li>
+      <li>
+        <strong>Export the cookies.</strong>
+        <p>Open a <code>youtube.com</code> tab, click the extension's icon, and click <strong>Export</strong>. Set its format to <strong>“Netscape” / cookies.txt</strong>; if it offers a <em>“Current Site”</em> option while you're on youtube.com, that's enough. It downloads a <code>cookies.txt</code> file.</p>
+      </li>
+      <li>
+        <strong>Save the file into the helper folder.</strong>
+        <p>Move/save the downloaded file to exactly this path:</p>
+        <pre><code>C:\Users\georg\Projects\Youtube-Translator\helper\cookies.txt</code></pre>
+      </li>
+      <li>
+        <strong>That's it — no restart needed.</strong>
+        <p>The helper auto-detects the file. Reload the YouTube tab and play the age-restricted video. The extension popup status will show <strong>“Cookies: ✓”</strong> once the helper detects the file.</p>
+      </li>
+    </ol>
+
+    <div class="callout info">
+      <p>The helper auto-detects <code>helper\cookies.txt</code>. You can also point it at a file elsewhere by setting the <code>YTDLP_COOKIES_FILE</code> environment variable to that file's full path.</p>
+    </div>
+
+    <div class="callout tip">
+      <p><strong>Cookies expire / rotate.</strong> If a video later says <em>“Sign in to confirm your age”</em> again, just <strong>re-export cookies.txt</strong> (repeat steps 3–4). For maximum stability, export from an <strong>Incognito window</strong>: log into YouTube in Incognito, export, then <strong>close</strong> the Incognito window so the session isn't rotated out from under the file.</p>
+    </div>
+
+    <div class="callout warn">
+      <p>The <code>cookies.txt</code> file contains your YouTube <strong>login tokens</strong> — treat it like a password. Keep it private; it stays on your machine and is never uploaded.</p>
+    </div>
+
+    <h3>Full age-restricted setup (PO token + JS challenge)</h3>
+    <p>For <strong>age-restricted (18+)</strong> videos, <code>cookies.txt</code> alone is <strong>no longer enough</strong>. YouTube now also demands a <strong>proof-of-origin (PO) token</strong> and a <strong>solved JavaScript challenge</strong> before it will hand over the audio streams. <strong>Normal videos need none of this</strong> — this whole stack only matters for the "needs_auth" age-restricted case. It's a <strong>one-time setup</strong>; once in place it's automatic.</p>
+
+    <p>There are three pieces:</p>
+    <ol class="steps">
+      <li>
+        <strong>cookies.txt</strong> — passes the age gate.
+        <p>Already covered above. Without it you'll get <em>"Sign in to confirm your age"</em>.</p>
+      </li>
+      <li>
+        <strong>A PO-token server, run via Docker.</strong>
+        <p><strong>Docker Desktop must be installed and running.</strong> Then start the token provider once — it auto-restarts with Docker and listens on <code>127.0.0.1:4416</code>:</p>
+        <pre><code>docker run -d --name bgutil-pot --restart unless-stopped -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider</code></pre>
+        <p>Check it's alive by opening <a href="http://127.0.0.1:4416/ping">http://127.0.0.1:4416/ping</a> — it should return JSON. The matching yt-dlp plugin is already installed; if you ever need to (re)install it:</p>
+        <pre><code>pip install -U bgutil-ytdlp-pot-provider</code></pre>
+      </li>
+      <li>
+        <strong>A JavaScript challenge solver (YouTube's "n challenge").</strong>
+        <p>Install the yt-dlp EJS plugin and the <strong>Deno</strong> runtime (yt-dlp's preferred JS engine — Node alone is <strong>not</strong> used):</p>
+        <pre><code>pip install -U yt-dlp-ejs
+winget install DenoLand.Deno</code></pre>
+        <p>Then <strong>restart the helper / open a new terminal</strong> so Deno is on your <code>PATH</code>.</p>
+      </li>
+    </ol>
+
+    <div class="callout info">
+      <p><strong>This stack only matters for age-restricted videos.</strong> Once set up it's automatic and persists — the Docker container auto-restarts with Docker, so there's nothing to start by hand. The popup shows <strong>"Cookies: ✓"</strong> when cookies are detected.</p>
+    </div>
+
+    <div class="callout tip">
+      <p><strong>Diagnosing which piece is missing</strong> (read the helper's error text):</p>
+      <p><strong>"Sign in to confirm your age"</strong> → you need <strong>cookies</strong> (step 1).<br>
+      <strong>"Requested format is not available"</strong> / only <em>storyboard</em> formats offered → you need the <strong>PO-token Docker server</strong> (step 2).<br>
+      <strong>"n challenge solving failed"</strong> / <strong>"JS runtimes: none"</strong> → you need <strong>Deno + yt-dlp-ejs</strong> (step 3).</p>
+    </div>
+
+    <div class="callout warn">
+      <p>If you have <strong>YouTube Premium</strong>, <em>non</em>-age-restricted videos generally don't need the PO token. But age-restricted ("needs_auth") videos still require the full stack above — Premium does not exempt them.</p>
+    </div>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section id="trouble">
+    <h2 class="sec"><span class="num">7</span>Troubleshooting</h2>
+    <table>
+      <thead>
+        <tr><th>Problem</th><th>Fix</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="problem">No subtitles / “helper not running”</td>
+          <td>Make sure <code>python server.py</code> is running in the <code>helper/</code> folder and that the popup shows <span class="pill green">Connected</span>. The helper must stay open while you watch.</td>
+        </tr>
+        <tr>
+          <td class="problem">Subtitles slow to appear on first play</td>
+          <td>The model is probably still downloading or loading. Check the helper terminal — once it says it's listening on <code>127.0.0.1:8765</code>, subtitles will start flowing.</td>
+        </tr>
+        <tr>
+          <td class="problem">Status shows CPU instead of CUDA</td>
+          <td>Your GPU isn't being used, so it'll be slow. This means the CUDA / PyTorch GPU setup isn't active. Reinstall a CUDA-enabled build of <code>torch</code> and confirm your NVIDIA drivers are up to date, then restart the helper.</td>
+        </tr>
+        <tr>
+          <td class="problem">Subtitles out of sync after seeking</td>
+          <td>If you scrub/jump around in the video and captions drift, simply <strong>reload the page</strong> to resync.</td>
+        </tr>
+        <tr>
+          <td class="problem">Translations look censored / not faithful</td>
+          <td>Make sure the <strong>Translation engine</strong> in the popup is set to <strong>Faithful (Ollama)</strong> (not Fast), that you've run <code>ollama pull qwen2.5:7b</code>, and that Ollama is actually running (<code>ollama list</code>). The Fast/Whisper engine tends to sanitize slang and profanity.</td>
+        </tr>
+        <tr>
+          <td class="problem">Subtitles say “falling back to Whisper”</td>
+          <td>The helper couldn't reach Ollama, so it used Whisper's built-in translation instead. Start Ollama and make sure a chat model is pulled:<br>
+            <pre><code>ollama pull qwen2.5:7b
+ollama list</code></pre>
+          </td>
+        </tr>
+        <tr>
+          <td class="problem">No model in the dropdown</td>
+          <td>You haven't pulled a chat model yet. Run the command below, then reopen the popup:<br>
+            <pre><code>ollama pull qwen2.5:7b</code></pre>
+          </td>
+        </tr>
+        <tr>
+          <td class="problem">🔒 Age-restricted video needs your YouTube login</td>
+          <td>Export <code>cookies.txt</code> with the “Get cookies.txt LOCALLY” extension into the helper folder (see the <a href="#cookies">cookies section</a>).</td>
+        </tr>
+        <tr>
+          <td class="problem">Requested format is not available (age-restricted)</td>
+          <td>Start the PO-token server and make sure <strong>Docker Desktop is running</strong>:<br>
+            <pre><code>docker run -d --name bgutil-pot --restart unless-stopped -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider</code></pre>
+            It listens on port <code>4416</code>. See the <a href="#cookies">age-restricted setup</a>.
+          </td>
+        </tr>
+        <tr>
+          <td class="problem">n challenge solving failed / JS runtimes: none</td>
+          <td>Install Deno and the EJS plugin, then restart the helper:<br>
+            <pre><code>winget install DenoLand.Deno
+pip install -U yt-dlp-ejs</code></pre>
+          </td>
+        </tr>
+        <tr>
+          <td class="problem">yt-dlp errors</td>
+          <td>YouTube changes often. Update yt-dlp and try again:<br>
+            <pre><code>pip install -U yt-dlp</code></pre>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section id="notes">
+    <h2 class="sec"><span class="num">8</span>Notes &amp; future</h2>
+    <ul class="plain">
+      <li><strong>Free, local &amp; private.</strong> Everything runs on your own machine. The audio is processed locally and <em>never leaves your PC</em> — no cloud services, no API keys, no costs.</li>
+      <li><strong>VOD-only for now.</strong> Regular YouTube videos work today; live streams aren't supported yet.</li>
+      <li><strong>Live-stream support is planned</strong> as a future feature.</li>
+      <li><strong>Possible open-source release.</strong> This may eventually be polished up and released as a free, open-source extension.</li>
+    </ul>
+    <div class="callout tip">
+      <p>Daily routine, in short: <strong>make sure Ollama is running</strong> → <strong>start the helper</strong> (<code>python server.py</code>) → <strong>open a YouTube video</strong> → enjoy the subtitles. That's it.</p>
+    </div>
+  </section>
+
+  <footer>
+    YouTube → English Subtitles · personal tool · runs locally on your RTX 5070 Ti<br>
+    Helper at <code>127.0.0.1:8765</code> — keep its terminal open while watching.
+  </footer>
+
+</div>
+</body>
+</html>

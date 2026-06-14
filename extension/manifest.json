@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube → English Subtitles (Local Translator)",
+  "version": "1.4.2",
+  "description": "Overlays live English subtitles on YouTube videos, translated by a local helper running on 127.0.0.1:8765.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "ws://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "YouTube English Subtitles"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["content.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

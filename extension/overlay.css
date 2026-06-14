@@ -1,0 +1,89 @@
+/* overlay.css — styling for the English subtitle overlay.
+ *
+ * The overlay container is appended INSIDE the YouTube player element
+ * (.html5-video-player) so it inherits the player's positioning and
+ * automatically tracks default / theater / fullscreen layouts.
+ */
+
+/* Container that holds the caption. Absolutely positioned within the
+ * player, anchored to the bottom-center. Pointer events disabled so it
+ * never intercepts clicks meant for the player controls. */
+.ytx-caption-container {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8%; /* sits above YouTube's control bar */
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  pointer-events: none;
+  z-index: 60; /* above YouTube controls (which are ~30-40) */
+  text-align: center;
+  /* Font size is driven by a CSS variable set from user settings. */
+  --ytx-font-size: 28px;
+  transition: bottom 0.15s ease;
+}
+
+/* The actual caption text box. Only visible when it has content. */
+.ytx-caption {
+  display: inline-block;
+  max-width: 90%;
+  padding: 0.2em 0.6em;
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffffff;
+  font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+  font-size: var(--ytx-font-size);
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+  border-radius: 4px;
+  /* Strong text shadow for legibility over bright backgrounds. */
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.9),
+    0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Hidden state: no content → collapse so the box/background disappears. */
+.ytx-caption:empty {
+  display: none;
+}
+
+/* Error / status messages use a slightly different tint so they stand out. */
+.ytx-caption.ytx-error {
+  background: rgba(120, 0, 0, 0.82);
+  font-weight: 600;
+}
+
+.ytx-caption.ytx-status {
+  background: rgba(0, 0, 0, 0.6);
+  font-style: italic;
+  opacity: 0.92;
+}
+
+/* Font-size variants, toggled by class on the container. */
+.ytx-caption-container.ytx-size-small {
+  --ytx-font-size: 20px;
+}
+.ytx-caption-container.ytx-size-medium {
+  --ytx-font-size: 28px;
+}
+.ytx-caption-container.ytx-size-large {
+  --ytx-font-size: 38px;
+}
+
+/* In fullscreen the player is large; nudge the captions up a touch more so
+ * they clear the (taller) fullscreen control bar and scale fonts up. */
+.ytx-fullscreen .ytx-caption-container {
+  bottom: 9%;
+}
+.ytx-fullscreen .ytx-caption-container.ytx-size-small {
+  --ytx-font-size: 28px;
+}
+.ytx-fullscreen .ytx-caption-container.ytx-size-medium {
+  --ytx-font-size: 40px;
+}
+.ytx-fullscreen .ytx-caption-container.ytx-size-large {
+  --ytx-font-size: 54px;
+}

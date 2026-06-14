@@ -1,0 +1,24 @@
+# Secrets — YouTube auth cookies. NEVER commit.
+helper/cookies.txt
+cookies.txt
+
+# Helper runtime artifacts
+helper/helper.log
+helper/cache/
+helper/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Temp audio windows (also live in the OS temp dir, but just in case)
+helper/cache/*.json
+*.wav
+
+# Whisper model downloads (large)
+*.bin
+models/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
