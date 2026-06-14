@@ -102,6 +102,7 @@ def transcribe(
     time_offset: float = 0.0,
     hotwords: Optional[str] = None,
     initial_prompt: Optional[str] = None,
+    beam_size: int = 5,
 ) -> Iterator[Tuple[float, float, str]]:
     """Translate `audio_path` to English, yielding (start, end, text) segments.
 
@@ -121,7 +122,7 @@ def transcribe(
     kwargs = dict(
         task="translate",  # any language -> English
         language=language,  # None => auto-detect
-        beam_size=5,
+        beam_size=beam_size,  # lower => faster first caption, slightly less accurate
         vad_filter=True,  # skip long silences for speed/quality
     )
     if hotwords:

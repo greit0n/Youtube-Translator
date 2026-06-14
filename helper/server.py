@@ -424,10 +424,14 @@ async def transcribe_ws(ws: WebSocket) -> None:
 
             try:
                 if eff_engine == "whisper":
+                    # Fast beam at the playhead (latency is felt here); full beam
+                    # for pre-buffered windows you haven't reached yet (quality).
+                    beam = 1 if at_playhead else 5
                     raw = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe(
-                            wav_path, language=language, time_offset=cursor, hotwords=hotwords
+                            wav_path, language=language, time_offset=cursor,
+                            hotwords=hotwords, beam_size=beam,
                         ),
                     )
                     segs = [(s, e, t, None) for (s, e, t) in raw]

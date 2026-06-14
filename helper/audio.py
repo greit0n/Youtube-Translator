@@ -107,8 +107,15 @@ def _do_extract(video_id: str, with_cookies: bool) -> dict:
     }
     if with_cookies:
         opts.update(_cookie_opts())
-    # NOTE: keep the PO token (do NOT pass fetch_pot=never) — without it YouTube
-    # throttles the audio download to a crawl for some videos.
+    # NOTE: by default keep the PO token (do NOT pass fetch_pot=never) — without
+    # it YouTube throttles the audio download to a crawl for SOME videos.
+    # A/B switch: set YTX_NO_POT=1 to skip PO-token fetching and measure whether
+    # it actually speeds up resolution for the video you're testing. If resolves
+    # get faster AND windowed seeks still work, the token wasn't needed for it.
+    no_pot = bool(os.environ.get("YTX_NO_POT"))
+    if no_pot:
+        opts["extractor_args"] = {"youtube": {"fetch_pot": ["never"]}}
+    _log(f"_do_extract cookies={with_cookies} pot={'off' if no_pot else 'on'}")
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(_watch_url(video_id), download=False)
 
