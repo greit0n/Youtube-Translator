@@ -70,20 +70,27 @@ def _build_prompt(
     """
     lang = src_lang or "foreign"
     lines = [
-        f"Translate the following {lang} speech transcript to natural, spoken "
-        "English. Render swearing as the natural, equivalent English swearing — "
-        "never censor, euphemise, bracket, or omit it. Preserve slang and gaming "
-        "terms faithfully, and keep names and proper nouns. The output MUST be "
-        "English only: NEVER include any other language or non-Latin script. "
-        "Output ONLY the English translation, no notes.",
+        f"Translate this single {lang} subtitle line into ONE short, natural line "
+        "of spoken English. Translate EVERY word — never leave a source-language "
+        "word in the output. Render swearing as the natural, equivalent English "
+        "swearing — never censor, euphemise, bracket, or omit it. Preserve slang "
+        "and gaming terms, and keep names/proper nouns. The output MUST be English "
+        "only: NEVER include any other language or non-Latin script. Output ONLY "
+        "the translated line — no notes, no extra sentences, no continuation.",
     ]
 
     if glossary:
+        # Inject ONLY the glossary entries whose term actually appears in THIS
+        # line. Dumping the whole glossary (can be dozens of entries) bloats the
+        # prompt and makes the model ramble and leak untranslated source terms.
+        low = text.lower()
         pinned = []
         keep = []
         for entry in glossary:
             term = (entry.get("term") or "").strip()
             if not term:
+                continue
+            if term.lower() not in low:
                 continue
             preferred = (entry.get("preferred") or "").strip()
             if preferred:
@@ -143,6 +150,10 @@ def translate(
         "options": {
             # Low temperature: we want a faithful translation, not creativity.
             "temperature": 0.2,
+            # Hard cap on output length: one subtitle line is short, so this stops
+            # the model from running away into a whole paragraph for a few seconds
+            # of speech (a failure mode seen with a large glossary in-prompt).
+            "num_predict": 160,
         },
     }
 
