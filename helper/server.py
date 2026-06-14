@@ -35,6 +35,12 @@ import translate_llm
 HOST = "127.0.0.1"
 PORT = 8765
 
+# Build identifier. Printed loudly at startup and returned by /health so you can
+# confirm the RUNNING process is current — restarting the helper is the #1 cause
+# of "I fixed it but nothing changed" (stale code keeps serving). Bump in lockstep
+# with extension/manifest.json when shipping behaviour changes.
+HELPER_VERSION = "1.7.3"
+
 # Stay this many seconds AHEAD of the client's current playback position.
 LEAD = 90.0
 # Size of each fetch+transcribe window, in seconds.
@@ -97,6 +103,7 @@ async def health() -> dict:
     ollama_up = await asyncio.to_thread(translate_llm.is_up)
     return {
         "status": "ok",
+        "version": HELPER_VERSION,
         "model_loaded": transcribe.is_loaded(),
         "whisper_model": transcribe.get_model_name(),
         "vram_gb": round(transcribe._detect_vram_gb(), 1),
@@ -685,6 +692,12 @@ async def transcribe_ws(ws: WebSocket) -> None:
 
 
 def main() -> None:
+    banner = f"  YouTube Translator Helper  v{HELPER_VERSION}  "
+    print("=" * len(banner), flush=True)
+    print(banner, flush=True)
+    print("  per-line glossary · num_predict cap · runaway guard", flush=True)
+    print("  merged-clip enrollment · enrolled-only filter", flush=True)
+    print("=" * len(banner), flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
 
 

@@ -11,6 +11,7 @@ are blocking and meant to be run from a thread by the async server.
 
 from __future__ import annotations
 
+import re
 from typing import List, Optional, Tuple
 
 import requests
@@ -124,6 +125,50 @@ def _build_prompt(
     return "\n".join(lines)
 
 
+def _clean_response(response: str, source: str) -> str:
+    """Normalise a raw Ollama reply into ONE short subtitle line.
+
+    A subtitle line translates to roughly one line. The classic failure mode —
+    a confused/weak model fed too much glossary — is to ramble into a whole
+    paragraph (or even invent dialogue from the glossary words). num_predict +
+    per-line glossary filtering make that rare, but this is the last-line backstop
+    so a few seconds of speech can NEVER fill the screen with a paragraph:
+
+      1. Drop an echoed "English:" prefix.
+      2. Keep only the first non-empty line (paragraph runaway emits blank-line
+         separated blocks).
+      3. If still wildly longer than the source, cut to the first sentence.
+    """
+    out = (response or "").strip()
+    if not out:
+        return ""
+
+    # 1. The model occasionally echoes the prompt's "English:" label.
+    if out[:8].lower() == "english:":
+        out = out[8:].strip()
+
+    # 2. One subtitle line. Multiple lines => runaway; take the first real one.
+    if "\n" in out:
+        for ln in out.splitlines():
+            ln = ln.strip()
+            if ln:
+                out = ln
+                break
+
+    # 3. A faithful translation of a short line stays short. If it's still
+    #    dramatically longer than the source, the model is rambling — keep the
+    #    first sentence (or a hard char cap if there's no sentence break).
+    limit = max(140, len(source) * 4)
+    if len(out) > limit:
+        m = re.search(r"[.!?](?:\s|$)", out)
+        if m and m.end() >= 8:
+            out = out[: m.end()].strip()
+        else:
+            out = out[:limit].rstrip() + "…"
+
+    return out
+
+
 def translate(
     text: str,
     src_lang: Optional[str] = None,
@@ -160,4 +205,4 @@ def translate(
     r = requests.post(f"{BASE_URL}/api/generate", json=payload, timeout=_GEN_TIMEOUT)
     r.raise_for_status()
     data = r.json()
-    return (data.get("response") or "").strip()
+    return _clean_response(data.get("response") or "", text)

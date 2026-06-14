@@ -266,6 +266,9 @@ async function checkHealth() {
     }
     const data = await resp.json();
     if (data && data.status === "ok") {
+      // Helper build id — lets the user confirm the RUNNING helper picked up the
+      // latest code (a stale, un-restarted process is the #1 "nothing changed" cause).
+      const ver = data.version ? `v${data.version} · ` : "";
       const device = (data.device || (data.cuda ? "cuda" : "cpu")).toUpperCase();
       const model = data.model_loaded ? "model loaded" : "model loading…";
       // Surface the active Whisper model tier (hardware-adaptive selection).
@@ -280,7 +283,7 @@ async function checkHealth() {
       setStatus(
         "connected",
         "Connected",
-        `Device: ${device} · ${whisper}${model} · ${ollama} · ${cookies}${enrolled}`
+        `${ver}Device: ${device} · ${whisper}${model} · ${ollama} · ${cookies}${enrolled}`
       );
     } else {
       setStatus("disconnected", "Helper responded oddly", "Unexpected /health payload");
