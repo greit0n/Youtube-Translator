@@ -285,7 +285,11 @@ def transcribe(
     )
 
     audio = whisperx.load_audio(audio_path)
-    kwargs = dict(batch_size=16)
+    # CRITICAL: pass task on the transcribe() call, not just at load. whisperx's
+    # FasterWhisperPipeline.transcribe defaults task to "transcribe" when omitted
+    # (asr.py: `task = task or "transcribe"`), IGNORING the load-time task — which
+    # silently produced source-language (e.g. Czech) output instead of English.
+    kwargs = dict(batch_size=16, task="translate")
     if language is not None:
         kwargs["language"] = language
     result = model.transcribe(audio, **kwargs)
@@ -327,7 +331,10 @@ def transcribe_source(
     )
 
     audio = whisperx.load_audio(audio_path)
-    kwargs = dict(batch_size=16)
+    # Pass task explicitly (see note in transcribe()): omitting it makes whisperx
+    # default to "transcribe" — which is what we want here, but be explicit so the
+    # behavior can't silently change.
+    kwargs = dict(batch_size=16, task="transcribe")
     if language is not None:
         kwargs["language"] = language
     result = model.transcribe(audio, **kwargs)
