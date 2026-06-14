@@ -271,6 +271,16 @@
     </div>
 
     <div class="row">
+      <label for="quality" title="Whisper model tier. Auto picks the best model that fits your GPU's VRAM.">Quality</label>
+      <select id="quality">
+        <option value="auto">Auto</option>
+        <option value="max">Max — large-v3</option>
+        <option value="balanced">Balanced — medium</option>
+        <option value="lite">Lite — small</option>
+      </select>
+    </div>
+
+    <div class="row">
       <label for="fontSize">Caption size</label>
       <select id="fontSize">
         <option value="small">Small</option>

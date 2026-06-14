@@ -95,6 +95,8 @@ async def health() -> dict:
     return {
         "status": "ok",
         "model_loaded": transcribe.is_loaded(),
+        "whisper_model": transcribe.get_model_name(),
+        "vram_gb": round(transcribe._detect_vram_gb(), 1),
         "cuda": transcribe.is_cuda(),
         "device": transcribe.get_device(),
         "ollama": ollama_up,
@@ -276,17 +278,19 @@ async def transcribe_ws(ws: WebSocket) -> None:
         # faithful source transcript and translates it with the LLM.
         task = "translate" if engine == "whisper" else "transcribe"
 
+        # Resolve the Whisper model tier from the Quality setting (VRAM-adaptive
+        # for "auto"). This feeds both the cache variant and the model load.
+        whisper_model = transcribe.resolve_model(quality)
+
         # Cache variant captures output-affecting dims so different quality/clean/diarize
         # combos get separate cache files.
-        # TODO(phase C): use resolved whisper model instead of transcribe.MODEL_NAME
-        variant = f"{transcribe.MODEL_NAME}|{clean_audio}|{'diar' if diarize else 'mono'}"
+        variant = f"{whisper_model}|{clean_audio}|{'diar' if diarize else 'mono'}"
 
         _log(
             f"session video={video_id} start={start_time:.1f} engine={engine} "
-            f"preBuffer={pre_buffer} quality={quality} clean={clean_audio} "
-            f"diarize={diarize} cookies={audio.cookies_source()}"
+            f"preBuffer={pre_buffer} quality={quality} whisper_model={whisper_model} "
+            f"clean={clean_audio} diarize={diarize} cookies={audio.cookies_source()}"
         )
-        # TODO(phase C): use quality to select whisper model/beam preset
         # TODO(phase D): pass clean_audio to audio pre-processing pipeline
         # TODO(phase E): pass diarize flag to diarization step
 
@@ -321,6 +325,19 @@ async def transcribe_ws(ws: WebSocket) -> None:
         # --- Make sure the Whisper model is ready --------------------------
         if not await _wait_for_model(ws):
             return
+
+        # The background load picks the auto tier; if this session needs a
+        # different model (explicit Quality override, or auto on a machine the
+        # background load mis-sized), switch it now. Reloads are rare.
+        if transcribe.get_model_name() != whisper_model:
+            await ws.send_json({"type": "status", "message": "switching model"})
+            try:
+                await asyncio.to_thread(transcribe.load_model, whisper_model)
+            except Exception as exc:
+                await ws.send_json(
+                    {"type": "error", "message": f"model load failed: {exc}"}
+                )
+                return
 
         # --- Resolve audio URL + duration (no download) --------------------
         await ws.send_json({"type": "status", "message": "resolving stream"})

@@ -23,12 +23,69 @@ from typing import Iterator, Optional, Tuple
 
 # large-v3 is used (NOT large-v3-turbo): turbo is noticeably weaker at the
 # translate task, and translation quality is the whole point of this tool.
+# large-v3 stays the preferred/default tier; it is no longer the ONLY option —
+# resolve_model() can pick a smaller tier when VRAM is tight or the user asks.
 MODEL_NAME = "large-v3"
 
 # Cached singletons so the (expensive) model load happens at most once.
 _model = None
+_model_name: Optional[str] = None  # name of the currently loaded model
 _device: Optional[str] = None
 _compute_type: Optional[str] = None
+
+
+def _detect_vram_gb() -> float:
+    """Total VRAM of GPU 0 in GiB, or 0.0 on CPU / no-CUDA / any error."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    except Exception:
+        pass
+    return 0.0
+
+
+def resolve_model(quality: str) -> str:
+    """Map a Quality setting to a concrete Whisper model name.
+
+    Explicit tiers:
+        "max"      -> "large-v3"
+        "balanced" -> "medium"
+        "lite"     -> "small"
+    "auto" (or anything unknown) picks by available VRAM, keeping large-v3
+    quality whenever it fits (the whole point of the tool):
+        >= 10 GB -> "large-v3"
+        >=  5 GB -> "medium"
+        >= 2.5 GB -> "small"
+        else      -> "base"
+
+    NOTE: never returns a distil-* model — those are English-only and break the
+    translate task this tool relies on.
+    """
+    q = (quality or "auto").lower()
+    if q == "max":
+        return "large-v3"
+    if q == "balanced":
+        return "medium"
+    if q == "lite":
+        return "small"
+    # "auto" / unknown -> size by VRAM.
+    vram = _detect_vram_gb()
+    if vram >= 10.0:
+        return "large-v3"
+    if vram >= 5.0:
+        return "medium"
+    if vram >= 2.5:
+        return "small"
+    return "base"
+
+
+def get_model_name() -> str:
+    """Name of the loaded model, or the auto-resolved choice if none loaded."""
+    if _model_name is not None:
+        return _model_name
+    return resolve_model("auto")
 
 
 def _detect_device() -> Tuple[str, str]:
@@ -51,31 +108,53 @@ def _detect_device() -> Tuple[str, str]:
     return "cpu", "int8"
 
 
-def load_model():
-    """Load the faster-whisper model once and cache it.
+def load_model(name: Optional[str] = None):
+    """Load a named faster-whisper model (singleton) and cache it.
 
-    Returns the loaded model. Sets module globals describing the real device
-    and compute type so the server can report them via /health.
+    `name` selects the Whisper model tier; when None it is auto-resolved from
+    available VRAM via resolve_model("auto"). The model is a NAMED singleton:
+    re-requesting the already-loaded model is a no-op, but switching to a
+    different tier frees the old model (and the CUDA cache) before loading.
+
+    Returns the loaded model. Sets module globals describing the loaded model
+    name, real device, and compute type so the server can report them.
     """
-    global _model, _device, _compute_type
+    global _model, _model_name, _device, _compute_type
 
-    if _model is not None:
+    if name is None:
+        name = resolve_model("auto")
+
+    # Already loaded AND it's the requested model -> reuse.
+    if _model is not None and _model_name == name:
         return _model
+
+    # A DIFFERENT model is loaded -> free it before loading the new one so we
+    # don't hold two large models in VRAM at once.
+    if _model is not None:
+        _model = None
+        _model_name = None
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     from faster_whisper import WhisperModel
 
     device, compute_type = _detect_device()
     try:
-        _model = WhisperModel(MODEL_NAME, device=device, compute_type=compute_type)
+        _model = WhisperModel(name, device=device, compute_type=compute_type)
     except Exception:
         # CUDA may be advertised but unusable (driver/cuDNN mismatch). Fall
         # back to CPU so the tool still works, and report the real device.
         if device != "cpu":
             device, compute_type = "cpu", "int8"
-            _model = WhisperModel(MODEL_NAME, device=device, compute_type=compute_type)
+            _model = WhisperModel(name, device=device, compute_type=compute_type)
         else:
             raise
 
+    _model_name = name
     _device = device
     _compute_type = compute_type
     return _model
@@ -197,9 +276,12 @@ def main(argv: list[str]) -> int:
     audio_path = argv[1]
     language = argv[2] if len(argv) > 2 else None
 
-    print(f"Loading model {MODEL_NAME} ...", file=sys.stderr)
+    print("Loading model (auto tier) ...", file=sys.stderr)
     load_model()
-    print(f"Using device={get_device()} compute={_compute_type}", file=sys.stderr)
+    print(
+        f"Using model={get_model_name()} device={get_device()} compute={_compute_type}",
+        file=sys.stderr,
+    )
 
     for start, end, text in transcribe(audio_path, language=language):
         print(f"[{_format_ts(start)} --> {_format_ts(end)}] {text}")

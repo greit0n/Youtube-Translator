@@ -32,6 +32,7 @@ const modelEl = document.getElementById("model");
 const modelHintEl = document.getElementById("modelHint");
 const preBufferEl = document.getElementById("preBuffer");
 const autoPauseEl = document.getElementById("autoPause");
+const qualityEl = document.getElementById("quality");
 const glossaryEl = document.getElementById("glossary");
 const statusDot = document.getElementById("statusDot");
 const statusTitle = document.getElementById("statusTitle");
@@ -53,6 +54,7 @@ function loadSettings() {
     const model = stored.model || DEFAULTS.model;
     const preBuffer = stored.preBuffer !== false; // default true
     const autoPause = stored.autoPause !== false; // default true
+    const quality = stored.quality || "auto";
     const glossary = stored.glossary || "";
 
     enabledEl.checked = enabled;
@@ -62,6 +64,7 @@ function loadSettings() {
     engineEl.value = engine;
     preBufferEl.checked = preBuffer;
     autoPauseEl.checked = autoPause;
+    qualityEl.value = quality;
     glossaryEl.value = glossary;
 
     // Remember the desired model so it can be selected after /models loads.
@@ -114,6 +117,10 @@ preBufferEl.addEventListener("change", () => {
 
 autoPauseEl.addEventListener("change", () => {
   save("autoPause", autoPauseEl.checked);
+});
+
+qualityEl.addEventListener("change", () => {
+  save("quality", qualityEl.value);
 });
 
 // Glossary textarea fires many input events while typing — debounce the save
@@ -212,13 +219,15 @@ async function checkHealth() {
     if (data && data.status === "ok") {
       const device = (data.device || (data.cuda ? "cuda" : "cpu")).toUpperCase();
       const model = data.model_loaded ? "model loaded" : "model loading…";
+      // Surface the active Whisper model tier (hardware-adaptive selection).
+      const whisper = data.whisper_model ? `${data.whisper_model} · ` : "";
       // Show Ollama availability alongside the existing device/model info.
       const ollama = data.ollama ? "Ollama: ready" : "Ollama: ▢";
       const cookies = data.cookies ? "Cookies: ✓" : "Cookies: ▢";
       setStatus(
         "connected",
         "Connected",
-        `Device: ${device} · ${model} · ${ollama} · ${cookies}`
+        `Device: ${device} · ${whisper}${model} · ${ollama} · ${cookies}`
       );
     } else {
       setStatus("disconnected", "Helper responded oddly", "Unexpected /health payload");
