@@ -91,9 +91,14 @@ ENROLL_DIR: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "enro
 ENROLL_EXTS = (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma", ".mp4", ".webm")
 # Enrolled references are clean, single-speaker recordings, while in-video turns
 # are short and noisy, so the cross-recording cosine runs lower than the
-# window-to-window number. A slightly looser threshold catches the enrolled
-# voice without (in practice) grabbing other speakers, who sit well below ~0.45.
-ENROLL_THRESHOLD: float = 0.55
+# window-to-window number. Measured on real data: the SAME voice scores 0.6–0.98
+# on decent turns, while DIFFERENT speakers sit ~0.2, so 0.45 reliably catches
+# the enrolled voice (even on shortish turns) without grabbing anyone else.
+ENROLL_THRESHOLD: float = 0.45
+
+# Diarization turns shorter than this are dropped before labeling: too little
+# audio for a trustworthy embedding, and they spawn phantom speakers.
+MIN_TURN_DUR: float = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -382,8 +387,13 @@ class SpeakerTracker:
         # an Annotation-like object — normalise to a list of dicts.
         turns: list[dict] = _extract_turns(diar_result)
 
+        # Drop ultra-short turns: a sub-half-second blip yields a garbage
+        # embedding and routinely spawns a PHANTOM extra speaker (observed: a
+        # 0.2s turn became "Speaker 2"). Too short to label reliably anyway.
+        turns = [t for t in turns if (t["end"] - t["start"]) >= MIN_TURN_DUR]
+
         if not turns:
-            return segments  # no speech detected in this window
+            return segments  # no (usable) speech detected in this window
 
         # --- 2. Collect unique local speaker labels ----------------------
         local_labels: list[str] = list(dict.fromkeys(t["speaker"] for t in turns))
@@ -397,19 +407,26 @@ class SpeakerTracker:
             # Compute voice embedding (or None if embedding model unavailable)
             emb = self._compute_embedding(wav_path, speaker_turns)
 
-            if emb is not None and self._speakers:
-                # Find best cosine match among known global speakers
-                best_idx, best_sim = _best_match(emb, self._speakers)
-                matched = self._speakers[best_idx]
-                # Enrolled references match on a looser threshold (clean clip vs
-                # noisy in-video turn); cross-window speakers use the strict one.
-                thr = ENROLL_THRESHOLD if matched.get("enrolled") else SIMILARITY_THRESHOLD
-                if best_sim >= thr:
-                    global_label = matched["label"]
-                    # Don't drift a locked enrolled reference; update others.
-                    if not matched.get("locked"):
-                        _update_centroid(matched, emb)
-                    local_to_global[local_label] = global_label
+            if emb is not None:
+                # ENROLLED VOICES HAVE PRIORITY. A locked reference must win over
+                # any auto "Speaker N" — even one that accidentally formed from
+                # the SAME voice in an earlier window — otherwise the label
+                # flip-flops between the enrolled name and "Speaker N" depending
+                # on which centroid happens to score a hair higher this window.
+                enr_label, enr_sim = _best_in(
+                    emb, [s for s in self._speakers if s.get("enrolled")]
+                )
+                if enr_label is not None and enr_sim >= ENROLL_THRESHOLD:
+                    local_to_global[local_label] = enr_label
+                    continue
+
+                # Otherwise match against AUTO speakers for cross-window stability.
+                autos = [s for s in self._speakers if not s.get("enrolled")]
+                best_idx, best_sim = _best_match(emb, autos)
+                if autos and best_sim >= SIMILARITY_THRESHOLD:
+                    matched = autos[best_idx]
+                    _update_centroid(matched, emb)
+                    local_to_global[local_label] = matched["label"]
                     continue
 
             # No match (or no embedding / no speakers yet) -> new global speaker.
@@ -555,6 +572,20 @@ def _extract_turns(diar_result) -> list[dict]:
         pass
 
     return []
+
+
+def _best_in(emb: list[float], speakers: list[dict]) -> tuple[Optional[str], float]:
+    """Best (label, similarity) over a subset of speakers, skipping empties."""
+    best_label: Optional[str] = None
+    best_sim = -1.0
+    for sp in speakers:
+        if not sp["centroid"]:
+            continue
+        sim = _cosine_similarity(emb, sp["centroid"])
+        if sim > best_sim:
+            best_sim = sim
+            best_label = sp["label"]
+    return best_label, best_sim
 
 
 def _best_match(emb: list[float], speakers: list[dict]) -> tuple[int, float]:
