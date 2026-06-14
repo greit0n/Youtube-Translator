@@ -246,6 +246,7 @@
       <li><a href="#step1">Step 1 — Start the local helper</a></li>
       <li><a href="#step2">Step 2 — Install the extension</a></li>
       <li><a href="#step3">Step 3 — Watch a video</a></li>
+      <li><a href="#settings">New settings</a></li>
       <li><a href="#cookies">Age-restricted videos &amp; login</a></li>
       <li><a href="#trouble">Troubleshooting</a></li>
       <li><a href="#notes">Notes &amp; future</a></li>
@@ -339,6 +340,24 @@ ffmpeg -version</code></pre>
       <li>
         <strong>Install the dependencies.</strong> (One time, or whenever they change.)
         <pre><code>pip install -r requirements.txt</code></pre>
+        <p>This now pulls in <strong>WhisperX</strong> — a faster, smarter transcription engine that also powers the new <em>Speaker labels</em> feature. Everything else works exactly as before.</p>
+        <div class="callout warn">
+          <p><strong>Keep your GPU working: the <code>ctranslate2</code> version is pinned on purpose.</strong> <code>requirements.txt</code> locks <code>ctranslate2</code> to version <strong>4.8.0</strong> — the only version that runs on your RTX 5070 Ti's GPU. Don't manually upgrade it (and if something else tries to, re-run <code>pip install -r requirements.txt</code> to put it back). After installing, confirm the GPU is still in use: the startup logs should mention <code>CUDA</code> (not <code>CPU</code>), and a real video should produce subtitles within seconds.</p>
+        </div>
+      </li>
+      <li>
+        <strong>(Optional) Install the extras for Clean audio &amp; Speaker labels.</strong>
+        <p>Only needed if you want background-noise/music removal or speaker labels (see <a href="#settings">New settings</a>). For <strong>Clean audio</strong> (Light &amp; Music modes):</p>
+        <pre><code>pip install -r requirements-optional.txt</code></pre>
+        <p>For <strong>Speaker labels</strong> you don't need any extra <code>pip</code> install, but you do need a <strong>free HuggingFace token</strong> (a one-time setup):</p>
+        <ul class="plain">
+          <li>Create a free account at <a href="https://huggingface.co">huggingface.co</a>.</li>
+          <li>While logged in, open <strong>pyannote/speaker-diarization-3.1</strong> and <strong>pyannote/segmentation</strong> and <strong>accept the usage terms</strong> on each page.</li>
+          <li>Create an access token under <em>Settings → Access Tokens</em>, then give it to the helper one of two ways: set an <code>HF_TOKEN</code> environment variable, <strong>or</strong> save the token into a file at <code>helper\hf_token.txt</code>.</li>
+        </ul>
+        <div class="callout info">
+          <p>These extras are completely optional. If you skip them, <strong>Clean audio</strong> and <strong>Speaker labels</strong> simply do nothing (subtitles still work normally) — nothing breaks.</p>
+        </div>
       </li>
       <li>
         <strong>Start the helper.</strong>
@@ -417,8 +436,42 @@ ffmpeg -version</code></pre>
   </section>
 
   <!-- ============ 6 ============ -->
+  <section id="settings">
+    <h2 class="sec"><span class="num">6</span>New settings</h2>
+    <p>The popup has four newer settings. All are optional — the defaults are sensible, so you can ignore these until you want them. Changing any of them restarts the current video's subtitles automatically.</p>
+
+    <h3>Quality</h3>
+    <p>Picks the Whisper model based on your hardware. Bigger models are more accurate but use more GPU memory and run a touch slower.</p>
+    <ul class="plain">
+      <li><strong>Auto</strong> (default) — the helper checks your GPU's memory and picks the best model that fits: <code>large-v3</code> on a big GPU (like your RTX 5070 Ti), stepping down to <code>medium</code> / <code>small</code> / <code>base</code> on smaller ones.</li>
+      <li><strong>Max</strong> — always <code>large-v3</code> (highest quality).</li>
+      <li><strong>Balanced</strong> — <code>medium</code> (good quality, lighter).</li>
+      <li><strong>Lite</strong> — <code>small</code> (fastest, least accurate).</li>
+    </ul>
+    <p>On your machine, <em>Auto</em> and <em>Max</em> both land on <code>large-v3</code>. Switching this can cause a brief <em>“switching model”</em> pause while the new model loads.</p>
+
+    <h3>Clean audio</h3>
+    <p>Removes background noise or music before transcription, which can sharpen the subtitles on noisy footage. <strong>Requires the optional extras</strong> (<code>pip install -r requirements-optional.txt</code> — see <a href="#step1">Step 1</a>); without them this safely does nothing.</p>
+    <ul class="plain">
+      <li><strong>Off</strong> (default) — no processing, lowest latency.</li>
+      <li><strong>Light</strong> — gentle background-noise suppression (DeepFilterNet). Good for hiss, wind, room noise.</li>
+      <li><strong>Music</strong> — isolates voices from background music (Demucs). The most thorough, but the heaviest — expect a little extra delay.</li>
+    </ul>
+
+    <h3>Speaker labels</h3>
+    <p>Tags each line with a stable <strong>“Speaker 1”, “Speaker 2”…</strong> label (and a distinct color) so multi-person videos are easier to follow. Off by default. <strong>Needs the free HuggingFace token</strong> from <a href="#step1">Step 1</a>; without it, this simply stays off and subtitles look normal. It adds a little processing time per window.</p>
+
+    <h3>Glossary</h3>
+    <p>A box where you can list <strong>names and terms</strong> the tool should get right — one per line. This both helps Whisper <em>hear</em> the word correctly and keeps the translation <strong>consistent</strong>. Two formats:</p>
+    <pre><code>Zelensky
+Stalingrad
+favela = slum</code></pre>
+    <p>A plain line (<code>Zelensky</code>) just biases recognition toward that spelling. A <code>term = preferred</code> line (<code>favela = slum</code>) also tells the translator which English wording you want. Leave it empty if you don't need it.</p>
+  </section>
+
+  <!-- ============ 7 ============ -->
   <section id="cookies">
-    <h2 class="sec"><span class="num">6</span>Age-restricted videos &amp; login (cookies.txt)</h2>
+    <h2 class="sec"><span class="num">7</span>Age-restricted videos &amp; login (cookies.txt)</h2>
     <p>Most YouTube videos work with <strong>no setup at all</strong>. But <strong>age-restricted</strong> videos — and, occasionally, a YouTube “confirm you're not a bot” check — require <em>your</em> YouTube login to download. When this happens, the helper shows an error like:</p>
     <pre><code>🔒 Age-restricted video needs your YouTube login. Add a cookies.txt</code></pre>
     <p>The fix is to give the helper a one-time export of your YouTube login as a <code>cookies.txt</code> file.</p>
@@ -505,9 +558,9 @@ winget install DenoLand.Deno</code></pre>
     </div>
   </section>
 
-  <!-- ============ 7 ============ -->
+  <!-- ============ 8 ============ -->
   <section id="trouble">
-    <h2 class="sec"><span class="num">7</span>Troubleshooting</h2>
+    <h2 class="sec"><span class="num">8</span>Troubleshooting</h2>
     <table>
       <thead>
         <tr><th>Problem</th><th>Fix</th></tr>
@@ -524,6 +577,14 @@ winget install DenoLand.Deno</code></pre>
         <tr>
           <td class="problem">Status shows CPU instead of CUDA</td>
           <td>Your GPU isn't being used, so it'll be slow. This means the CUDA / PyTorch GPU setup isn't active. Reinstall a CUDA-enabled build of <code>torch</code> and confirm your NVIDIA drivers are up to date, then restart the helper.</td>
+        </tr>
+        <tr>
+          <td class="problem">Went to CPU after a reinstall / update</td>
+          <td>Something likely upgraded <code>ctranslate2</code> off the pinned <strong>4.8.0</strong>, which breaks GPU support on your card. Restore the pin by re-running <code>pip install -r requirements.txt</code> in the <code>helper/</code> folder, then restart the helper.</td>
+        </tr>
+        <tr>
+          <td class="problem">Clean audio / Speaker labels seem to do nothing</td>
+          <td>These need their extras. For Clean audio, run <code>pip install -r requirements-optional.txt</code>. For Speaker labels, set up the free HuggingFace token (see <a href="#step1">Step 1</a>). Without them, both quietly stay off and normal subtitles still work.</td>
         </tr>
         <tr>
           <td class="problem">Subtitles out of sync after seeking</td>
@@ -574,9 +635,9 @@ pip install -U yt-dlp-ejs</code></pre>
     </table>
   </section>
 
-  <!-- ============ 8 ============ -->
+  <!-- ============ 9 ============ -->
   <section id="notes">
-    <h2 class="sec"><span class="num">8</span>Notes &amp; future</h2>
+    <h2 class="sec"><span class="num">9</span>Notes &amp; future</h2>
     <ul class="plain">
       <li><strong>Free, local &amp; private.</strong> Everything runs on your own machine. The audio is processed locally and <em>never leaves your PC</em> — no cloud services, no API keys, no costs.</li>
       <li><strong>VOD-only for now.</strong> Regular YouTube videos work today; live streams aren't supported yet.</li>
