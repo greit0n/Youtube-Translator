@@ -32,6 +32,7 @@ const modelEl = document.getElementById("model");
 const modelHintEl = document.getElementById("modelHint");
 const preBufferEl = document.getElementById("preBuffer");
 const autoPauseEl = document.getElementById("autoPause");
+const glossaryEl = document.getElementById("glossary");
 const statusDot = document.getElementById("statusDot");
 const statusTitle = document.getElementById("statusTitle");
 const statusDetail = document.getElementById("statusDetail");
@@ -52,6 +53,7 @@ function loadSettings() {
     const model = stored.model || DEFAULTS.model;
     const preBuffer = stored.preBuffer !== false; // default true
     const autoPause = stored.autoPause !== false; // default true
+    const glossary = stored.glossary || "";
 
     enabledEl.checked = enabled;
     // language null -> "auto" option value
@@ -60,6 +62,7 @@ function loadSettings() {
     engineEl.value = engine;
     preBufferEl.checked = preBuffer;
     autoPauseEl.checked = autoPause;
+    glossaryEl.value = glossary;
 
     // Remember the desired model so it can be selected after /models loads.
     desiredModel = model;
@@ -111,6 +114,16 @@ preBufferEl.addEventListener("change", () => {
 
 autoPauseEl.addEventListener("change", () => {
   save("autoPause", autoPauseEl.checked);
+});
+
+// Glossary textarea fires many input events while typing — debounce the save
+// so we don't write to chrome.storage.sync on every keystroke.
+let glossarySaveTimer = null;
+glossaryEl.addEventListener("input", () => {
+  if (glossarySaveTimer) clearTimeout(glossarySaveTimer);
+  glossarySaveTimer = setTimeout(() => {
+    save("glossary", glossaryEl.value);
+  }, 400);
 });
 
 // ---- Ollama model list ---------------------------------------------------

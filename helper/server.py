@@ -286,7 +286,6 @@ async def transcribe_ws(ws: WebSocket) -> None:
             f"preBuffer={pre_buffer} quality={quality} clean={clean_audio} "
             f"diarize={diarize} cookies={audio.cookies_source()}"
         )
-        # TODO(phase B): pass glossary to LLM translate prompt
         # TODO(phase C): use quality to select whisper model/beam preset
         # TODO(phase D): pass clean_audio to audio pre-processing pipeline
         # TODO(phase E): pass diarize flag to diarization step
@@ -481,6 +480,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
                         translated = await asyncio.to_thread(
                             translate_llm.translate,
                             text, src_lang, model, list(sess.llm_context),
+                            glossary=glossary,
                         )
                         if translated:
                             out_text = translated

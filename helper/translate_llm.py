@@ -57,11 +57,16 @@ def _build_prompt(
     text: str,
     src_lang: Optional[str],
     prev_context: Optional[List[Tuple[str, str]]],
+    glossary: Optional[List[dict]] = None,
 ) -> str:
     """Build the translation prompt, optionally with a couple lines of context.
 
     `prev_context` is a list of (source_text, english_text) pairs from earlier in
     the stream, used to keep names/terms/tone consistent across windows.
+
+    `glossary` is a list of {term, preferred} dicts. Terms with a preferred
+    translation are pinned to that exact English; bare terms (no preferred) are
+    treated as proper nouns to keep as-is. This keeps names/jargon consistent.
     """
     lang = src_lang or "foreign"
     lines = [
@@ -70,6 +75,29 @@ def _build_prompt(
         "DO NOT censor or soften. Keep names and proper nouns. Output ONLY the "
         "English translation, no notes.",
     ]
+
+    if glossary:
+        pinned = []
+        keep = []
+        for entry in glossary:
+            term = (entry.get("term") or "").strip()
+            if not term:
+                continue
+            preferred = (entry.get("preferred") or "").strip()
+            if preferred:
+                pinned.append(f"- {term} => {preferred}")
+            else:
+                keep.append(term)
+        if pinned:
+            lines.append("")
+            lines.append("Use these exact translations for these terms:")
+            lines.extend(pinned)
+        if keep:
+            lines.append("")
+            lines.append(
+                "Keep these terms as-is (proper nouns, do not translate): "
+                + ", ".join(keep)
+            )
 
     if prev_context:
         lines.append("")
@@ -88,17 +116,19 @@ def translate(
     src_lang: Optional[str] = None,
     model: str = DEFAULT_MODEL,
     prev_context: Optional[List[Tuple[str, str]]] = None,
+    glossary: Optional[List[dict]] = None,
 ) -> str:
     """Translate a single transcript line to English via Ollama.
 
     Includes up to ~2 previous source/English lines as context for continuity.
+    `glossary` pins names/jargon to consistent translations (see _build_prompt).
     Raises on connection error so the caller can fall back to Whisper translate.
     """
     text = (text or "").strip()
     if not text:
         return ""
 
-    prompt = _build_prompt(text, src_lang, prev_context)
+    prompt = _build_prompt(text, src_lang, prev_context, glossary)
 
     payload = {
         "model": model,
