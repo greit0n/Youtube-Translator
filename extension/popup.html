@@ -5,56 +5,296 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>YouTube English Subtitles</title>
     <style>
+      /* ---------------------------------------------------------------------
+         Design tokens. Dark-first; light theme overrides via prefers-color.
+         --------------------------------------------------------------------- */
       :root {
         color-scheme: light dark;
+        --bg: #0f0f0f;
+        --surface: #1b1b1d;
+        --surface-2: #262629;
+        --surface-hover: #303034;
+        --border: rgba(255, 255, 255, 0.09);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --text: #f3f3f4;
+        --text-dim: #9a9aa0;
+        --text-faint: #6f6f76;
+        --accent: #ff453a;
+        --accent-2: #ff7a45;
+        --accent-soft: rgba(255, 69, 58, 0.16);
+        --ok: #32d74b;
+        --warn: #ffb340;
+        --bad: #ff453a;
+        --radius: 13px;
+        --radius-sm: 9px;
+        --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --surface: #f6f6f8;
+          --surface-2: #eeeef1;
+          --surface-hover: #e4e4e9;
+          --border: rgba(0, 0, 0, 0.08);
+          --border-strong: rgba(0, 0, 0, 0.16);
+          --text: #1a1a1c;
+          --text-dim: #6a6a72;
+          --text-faint: #97979e;
+          --accent-soft: rgba(255, 69, 58, 0.12);
+          --shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
       }
       body {
-        width: 280px;
+        width: 322px;
         margin: 0;
-        padding: 14px 16px 16px;
-        font-family: Roboto, Arial, sans-serif;
+        padding: 0 0 14px;
+        font-family: "SF Pro Text", "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: 13.5px;
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ---- Header --------------------------------------------------------- */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px 13px;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--accent) 9%, var(--bg)) 0%,
+          var(--bg) 100%
+        );
+        border-bottom: 1px solid var(--border);
+      }
+      .logo {
+        flex: 0 0 auto;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        box-shadow: 0 2px 8px var(--accent-soft);
+      }
+      .logo svg {
+        width: 14px;
+        height: 14px;
+        fill: #fff;
+        margin-left: 1px;
+      }
+      .title-wrap {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .title-wrap h1 {
         font-size: 14px;
-        background: #ffffff;
-        color: #0f0f0f;
+        font-weight: 650;
+        margin: 0;
+        letter-spacing: -0.2px;
       }
-      @media (prefers-color-scheme: dark) {
-        body {
-          background: #212121;
-          color: #f1f1f1;
-        }
-        select {
-          background: #303030;
-          color: #f1f1f1;
-          border-color: #555;
-        }
+      .title-wrap .sub {
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-top: 1px;
       }
-      h1 {
-        font-size: 15px;
-        margin: 0 0 12px;
+      /* Compact live pill in the header (mirrors the status dot state). */
+      .live-pill {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        font-size: 10.5px;
+        color: var(--text-dim);
         font-weight: 600;
       }
+
+      /* ---- Layout container ---------------------------------------------- */
+      main {
+        padding: 12px 14px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      /* ---- Rows ----------------------------------------------------------- */
       .row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 14px;
+        gap: 10px;
+        min-height: 30px;
       }
-      label {
+      .row > label,
+      .row > .row-label {
         font-weight: 500;
+        color: var(--text);
+        line-height: 1.25;
       }
+      .row .sublabel {
+        display: block;
+        font-weight: 400;
+        font-size: 11px;
+        color: var(--text-faint);
+        margin-top: 1px;
+      }
+
+      /* ---- Cards / groups ------------------------------------------------- */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 13px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* Collapsible group via native <details>. */
+      details.group {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      details.group > summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 13px;
+        font-weight: 600;
+        font-size: 12.5px;
+        color: var(--text);
+        user-select: none;
+        transition: background 0.15s;
+      }
+      details.group > summary::-webkit-details-marker {
+        display: none;
+      }
+      details.group > summary:hover {
+        background: var(--surface-hover);
+      }
+      details.group > summary .grp-icon {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        color: var(--accent);
+        opacity: 0.9;
+      }
+      details.group > summary .grp-chevron {
+        margin-left: auto;
+        width: 14px;
+        height: 14px;
+        color: var(--text-faint);
+        transition: transform 0.2s ease;
+      }
+      details.group[open] > summary .grp-chevron {
+        transform: rotate(180deg);
+      }
+      details.group[open] > summary {
+        border-bottom: 1px solid var(--border);
+      }
+      .group-body {
+        padding: 13px;
+        display: flex;
+        flex-direction: column;
+        gap: 13px;
+      }
+
+      /* ---- Selects -------------------------------------------------------- */
       select {
-        padding: 4px 6px;
-        border-radius: 4px;
-        border: 1px solid #ccc;
-        font-size: 13px;
-        min-width: 130px;
+        appearance: none;
+        -webkit-appearance: none;
+        min-width: 142px;
+        max-width: 168px;
+        padding: 7px 30px 7px 11px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
+        background-color: var(--surface-2);
+        color: var(--text);
+        font-size: 12.5px;
+        font-family: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9aa0' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+        transition: border-color 0.15s, background-color 0.15s;
       }
-      /* Toggle switch */
+      select:hover:not(:disabled) {
+        background-color: var(--surface-hover);
+        border-color: var(--accent);
+      }
+      select:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      select:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      /* ---- Text input ----------------------------------------------------- */
+      input[type="text"] {
+        min-width: 142px;
+        max-width: 168px;
+        padding: 7px 11px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
+        background: var(--surface-2);
+        color: var(--text);
+        font-size: 12.5px;
+        font-family: inherit;
+      }
+      input[type="text"]::placeholder {
+        color: var(--text-faint);
+      }
+      input[type="text"]:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      /* ---- Colour picker -------------------------------------------------- */
+      input[type="color"] {
+        width: 46px;
+        height: 30px;
+        padding: 2px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--surface-2);
+        cursor: pointer;
+      }
+      input[type="color"]::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      input[type="color"]::-webkit-color-swatch {
+        border: none;
+        border-radius: 5px;
+      }
+
+      /* ---- Toggle switch -------------------------------------------------- */
       .switch {
         position: relative;
         display: inline-block;
-        width: 44px;
+        width: 42px;
         height: 24px;
+        flex: 0 0 auto;
       }
       .switch input {
         opacity: 0;
@@ -63,305 +303,371 @@
       }
       .slider {
         position: absolute;
-        cursor: pointer;
         inset: 0;
-        background: #ccc;
+        cursor: pointer;
+        background: var(--surface-hover);
+        border: 1px solid var(--border-strong);
         border-radius: 24px;
-        transition: 0.2s;
+        transition: background 0.2s, border-color 0.2s;
       }
       .slider::before {
         content: "";
         position: absolute;
         height: 18px;
         width: 18px;
-        left: 3px;
-        bottom: 3px;
+        left: 2px;
+        bottom: 2px;
         background: #fff;
         border-radius: 50%;
-        transition: 0.2s;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+        transition: transform 0.2s ease;
       }
       input:checked + .slider {
-        background: #cc0000;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        border-color: transparent;
       }
       input:checked + .slider::before {
-        transform: translateX(20px);
+        transform: translateX(18px);
       }
-      /* Status indicator */
-      .status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        border-radius: 6px;
-        background: rgba(127, 127, 127, 0.12);
-        font-size: 12px;
-        line-height: 1.4;
-        margin-top: 4px;
+      input:focus-visible + .slider {
+        box-shadow: 0 0 0 3px var(--accent-soft);
       }
-      .dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: #999;
-        flex: 0 0 auto;
-      }
-      .dot.connected {
-        background: #2ecc40;
-      }
-      .dot.disconnected {
-        background: #ff4136;
-      }
-      .status-text strong {
-        display: block;
-      }
-      .status-text .detail {
-        opacity: 0.75;
-      }
-      hr {
-        border: none;
-        border-top: 1px solid rgba(127, 127, 127, 0.25);
-        margin: 4px 0 14px;
-      }
-      /* Small inline hint shown when no usable Ollama chat model exists. */
+
+      /* ---- Hints ---------------------------------------------------------- */
       .hint {
         font-size: 11px;
-        color: #cc6600;
-        margin: -8px 0 14px;
-        line-height: 1.3;
+        line-height: 1.4;
+        color: var(--text-dim);
+        margin: -4px 0 0;
       }
-      @media (prefers-color-scheme: dark) {
-        .hint {
-          color: #ffb066;
-        }
+      .hint.warn {
+        color: var(--warn);
       }
-      /* Greyed-out look for a disabled control (e.g. model when Whisper). */
-      select:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
+      .hint code {
+        font-family: "SF Mono", Consolas, monospace;
+        font-size: 10.5px;
+        background: var(--surface-2);
+        padding: 1px 4px;
+        border-radius: 4px;
       }
-      /* Re-translate button */
-      .reset-btn {
-        width: 100%;
-        margin-top: 10px;
-        padding: 8px 10px;
-        border: 1px solid rgba(127, 127, 127, 0.35);
-        border-radius: 6px;
-        background: rgba(127, 127, 127, 0.12);
-        color: inherit;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      .reset-btn:hover:not(:disabled) {
-        background: rgba(127, 127, 127, 0.22);
-      }
-      .reset-btn:disabled {
-        opacity: 0.6;
-        cursor: default;
-      }
-      .reset-hint {
-        font-size: 11px;
-        opacity: 0.6;
-        margin: 6px 2px 0;
-        line-height: 1.3;
-      }
-      /* Glossary editor — needs its own block; a textarea doesn't fit the
-         .row flex layout (label left / control right). */
-      .glossary-block {
-        margin-bottom: 14px;
-      }
+
+      /* ---- Glossary ------------------------------------------------------- */
       .glossary-block label {
         display: block;
-        margin-bottom: 6px;
+        font-weight: 500;
+        margin-bottom: 8px;
       }
       .glossary-block textarea {
         width: 100%;
-        box-sizing: border-box;
-        min-height: 84px;
+        min-height: 80px;
         resize: vertical;
-        padding: 6px 8px;
-        border-radius: 4px;
-        border: 1px solid #ccc;
-        font-family: "Roboto Mono", Consolas, monospace;
-        font-size: 12px;
+        padding: 9px 11px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
+        background: var(--surface-2);
+        color: var(--text);
+        font-family: "SF Mono", Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.5;
+      }
+      .glossary-block textarea:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      /* ---- Status bar ----------------------------------------------------- */
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 10px 12px;
+        border-radius: var(--radius);
+        background: var(--surface);
+        border: 1px solid var(--border);
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--text-faint);
+        flex: 0 0 auto;
+        position: relative;
+      }
+      .dot.connected {
+        background: var(--ok);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+      }
+      .dot.disconnected {
+        background: var(--bad);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent);
+      }
+      .status-text {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .status-text strong {
+        display: block;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      .status-text .detail {
+        display: block;
+        font-size: 10.5px;
+        color: var(--text-dim);
         line-height: 1.4;
-        background: #ffffff;
-        color: #0f0f0f;
+        margin-top: 1px;
+        word-break: break-word;
       }
-      @media (prefers-color-scheme: dark) {
-        .glossary-block textarea {
-          background: #303030;
-          color: #f1f1f1;
-          border-color: #555;
-        }
+
+      /* ---- Re-translate button ------------------------------------------- */
+      .reset-btn {
+        width: 100%;
+        padding: 11px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, transform 0.05s;
       }
-      .glossary-hint {
-        font-size: 11px;
-        opacity: 0.6;
-        margin: 6px 2px 0;
-        line-height: 1.3;
+      .reset-btn:hover:not(:disabled) {
+        background: var(--surface-hover);
+        border-color: var(--accent);
+      }
+      .reset-btn:active:not(:disabled) {
+        transform: scale(0.985);
+      }
+      .reset-btn:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .reset-hint {
+        font-size: 10.5px;
+        color: var(--text-faint);
+        margin: 7px 2px 0;
+        line-height: 1.4;
+        text-align: center;
       }
     </style>
   </head>
   <body>
-    <h1>YouTube → English Subtitles</h1>
-
-    <div class="row">
-      <label for="enabled">Enable subtitles</label>
-      <label class="switch">
-        <input type="checkbox" id="enabled" />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="language">Spoken language</label>
-      <select id="language">
-        <option value="auto">Auto (subtitle everything)</option>
-        <option value="cs">Czech (cs)</option>
-        <option value="de">German (de)</option>
-        <option value="es">Spanish (es)</option>
-        <option value="fr">French (fr)</option>
-        <option value="it">Italian (it)</option>
-        <option value="pt">Portuguese (pt)</option>
-        <option value="ru">Russian (ru)</option>
-        <option value="pl">Polish (pl)</option>
-        <option value="uk">Ukrainian (uk)</option>
-        <option value="ja">Japanese (ja)</option>
-        <option value="ko">Korean (ko)</option>
-        <option value="zh">Chinese (zh)</option>
-        <option value="ar">Arabic (ar)</option>
-        <option value="hi">Hindi (hi)</option>
-        <option value="tr">Turkish (tr)</option>
-        <option value="nl">Dutch (nl)</option>
-        <option value="sv">Swedish (sv)</option>
-      </select>
-    </div>
-    <div class="glossary-hint" style="margin-top:-8px">
-      Pick the language you want subtitled → only that language is translated to
-      English; other languages (e.g. game audio) are skipped. Auto = subtitle all.
-    </div>
-
-    <div class="row">
-      <label for="engine">Translation engine</label>
-      <select id="engine">
-        <option value="ollama">Faithful (Ollama)</option>
-        <option value="whisper">Fast (Whisper)</option>
-      </select>
-    </div>
-
-    <div class="row">
-      <label for="model">Ollama model</label>
-      <select id="model"></select>
-    </div>
-    <div class="hint" id="modelHint" hidden>
-      No chat model found — run: ollama pull qwen2.5:7b
-    </div>
-
-    <div class="row">
-      <label for="preBuffer">Pre-buffer</label>
-      <label class="switch">
-        <input type="checkbox" id="preBuffer" />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="autoPause" title="Pause the video until subtitles for the current moment are ready, then resume automatically">Auto-pause for subtitles</label>
-      <label class="switch">
-        <input type="checkbox" id="autoPause" />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="quality" title="Whisper model tier. Auto picks the best model that fits your GPU's VRAM.">Quality</label>
-      <select id="quality">
-        <option value="auto">Auto</option>
-        <option value="max">Max — large-v3</option>
-        <option value="balanced">Balanced — medium</option>
-        <option value="lite">Lite — small</option>
-      </select>
-    </div>
-
-    <div class="row">
-      <label for="cleanAudio" title="Suppress background noise or music before transcription so Whisper hears the speech more clearly.">Clean audio</label>
-      <select id="cleanAudio">
-        <option value="off">Off</option>
-        <option value="light">Light — denoise</option>
-        <option value="music">Music — vocal isolation</option>
-      </select>
-    </div>
-    <div class="hint" id="cleanAudioHint">
-      Light/Music need extra installs (see how-to.html).
-    </div>
-
-    <div class="row">
-      <label for="diarize" title="Label each subtitle with the speaker and tint it in a per-speaker color.">Speaker labels</label>
-      <label class="switch">
-        <input type="checkbox" id="diarize" />
-        <span class="slider"></span>
-      </label>
-    </div>
-    <div class="hint" id="diarizeHint">
-      Needs a free HuggingFace token; first run downloads the diarization model
-      (see how-to.html).
-    </div>
-
-    <div class="row">
-      <label for="highlightName" title="Give a fixed name + colour to the enrolled voice (drop a clip in helper/enroll/).">Your voice — name</label>
-      <input type="text" id="highlightName" placeholder="(uses file name)"
-        style="min-width:130px;padding:4px 6px;border-radius:4px;border:1px solid #ccc;font-size:13px" />
-    </div>
-    <div class="row">
-      <label for="highlightColor">Your voice — colour</label>
-      <input type="color" id="highlightColor" value="#ff3b30"
-        style="width:44px;height:28px;padding:0;border:1px solid #ccc;border-radius:4px;background:none;cursor:pointer" />
-    </div>
-    <div class="hint" id="highlightHint" style="color:inherit;opacity:0.6">
-      Put a 1–3 min clip of one person at
-      <code>helper/enroll/&lt;Name&gt;.wav</code> (mp3/m4a fine). With Speaker
-      labels on, that voice is detected and painted this colour — even among
-      several speakers. The name here overrides the file name.
-    </div>
-
-    <div class="row">
-      <label for="fontSize">Caption size</label>
-      <select id="fontSize">
-        <option value="small">Small</option>
-        <option value="medium">Medium</option>
-        <option value="large">Large</option>
-      </select>
-    </div>
-
-    <div class="glossary-block">
-      <label for="glossary">Names &amp; terms glossary</label>
-      <textarea id="glossary" rows="5" spellcheck="false"
-        placeholder="Geralt&#10;Kaer Morhen = Kaer Morhen&#10;druh = buddy"></textarea>
-      <div class="glossary-hint">
-        One entry per line: <code>term</code> or
-        <code>term = preferred translation</code>. Terms bias Whisper recognition
-        and keep LLM translations consistent.
-      </div>
-    </div>
-
-    <hr />
-
-    <div class="status" id="status">
-      <span class="dot" id="statusDot"></span>
-      <span class="status-text">
-        <strong id="statusTitle">Checking helper…</strong>
-        <span class="detail" id="statusDetail">127.0.0.1:8765</span>
+    <header>
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
       </span>
-    </div>
+      <span class="title-wrap">
+        <h1>English Subtitles</h1>
+        <span class="sub">YouTube → live translation</span>
+      </span>
+      <span class="live-pill" id="livePill">
+        <span class="dot" id="statusDot"></span>
+        <span id="livePillText">…</span>
+      </span>
+    </header>
 
-    <button id="resetBtn" class="reset-btn" type="button"
-      title="Clear this video's saved transcript and translate it again from scratch">
-      ♻ Re-translate this video
-    </button>
-    <div class="reset-hint">
-      Use if captions look wrong, are missing the start, or got stuck.
-    </div>
+    <main>
+      <!-- Core controls — always visible -->
+      <div class="card">
+        <div class="row">
+          <label for="enabled">Enable subtitles</label>
+          <label class="switch">
+            <input type="checkbox" id="enabled" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="row">
+          <span class="row-label">
+            Spoken language
+            <span class="sublabel">only this language is translated</span>
+          </span>
+          <select id="language">
+            <option value="auto">Auto — subtitle all</option>
+            <option value="cs">Czech (cs)</option>
+            <option value="de">German (de)</option>
+            <option value="es">Spanish (es)</option>
+            <option value="fr">French (fr)</option>
+            <option value="it">Italian (it)</option>
+            <option value="pt">Portuguese (pt)</option>
+            <option value="ru">Russian (ru)</option>
+            <option value="pl">Polish (pl)</option>
+            <option value="uk">Ukrainian (uk)</option>
+            <option value="ja">Japanese (ja)</option>
+            <option value="ko">Korean (ko)</option>
+            <option value="zh">Chinese (zh)</option>
+            <option value="ar">Arabic (ar)</option>
+            <option value="hi">Hindi (hi)</option>
+            <option value="tr">Turkish (tr)</option>
+            <option value="nl">Dutch (nl)</option>
+            <option value="sv">Swedish (sv)</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label for="engine">Translation engine</label>
+          <select id="engine">
+            <option value="ollama">Faithful (Ollama)</option>
+            <option value="whisper">Fast (Whisper)</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label for="model">Ollama model</label>
+          <select id="model"></select>
+        </div>
+        <p class="hint warn" id="modelHint" hidden>
+          No chat model found — run <code>ollama pull qwen2.5:7b</code>
+        </p>
+      </div>
+
+      <!-- Playback -->
+      <details class="group" open>
+        <summary>
+          <svg class="grp-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+          Playback
+          <svg class="grp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </summary>
+        <div class="group-body">
+          <div class="row">
+            <label for="preBuffer">Pre-buffer</label>
+            <label class="switch">
+              <input type="checkbox" id="preBuffer" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="row">
+            <span class="row-label">
+              Auto-pause
+              <span class="sublabel">wait for subtitles, then resume</span>
+            </span>
+            <label class="switch">
+              <input type="checkbox" id="autoPause" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="row">
+            <label for="fontSize">Caption size</label>
+            <select id="fontSize">
+              <option value="small">Small</option>
+              <option value="medium">Medium</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <!-- Audio & quality -->
+      <details class="group">
+        <summary>
+          <svg class="grp-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></svg>
+          Audio &amp; quality
+          <svg class="grp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </summary>
+        <div class="group-body">
+          <div class="row">
+            <span class="row-label">
+              Quality
+              <span class="sublabel">Auto picks the best for your GPU</span>
+            </span>
+            <select id="quality">
+              <option value="auto">Auto</option>
+              <option value="max">Max — large-v3</option>
+              <option value="balanced">Balanced — medium</option>
+              <option value="lite">Lite — small</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="cleanAudio">Clean audio</label>
+            <select id="cleanAudio">
+              <option value="off">Off</option>
+              <option value="light">Light — denoise</option>
+              <option value="music">Music — isolate vocals</option>
+            </select>
+          </div>
+          <p class="hint" id="cleanAudioHint">
+            Light/Music need extra installs (see how-to.html).
+          </p>
+        </div>
+      </details>
+
+      <!-- Speakers -->
+      <details class="group">
+        <summary>
+          <svg class="grp-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          Speakers
+          <svg class="grp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </summary>
+        <div class="group-body">
+          <div class="row">
+            <span class="row-label">
+              Speaker labels
+              <span class="sublabel">colour-code each speaker</span>
+            </span>
+            <label class="switch">
+              <input type="checkbox" id="diarize" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="hint" id="diarizeHint">
+            Needs a free HuggingFace token; first run downloads the diarization
+            model (see how-to.html).
+          </p>
+          <div class="row">
+            <label for="highlightName">Your voice — name</label>
+            <input type="text" id="highlightName" placeholder="(uses file name)" />
+          </div>
+          <div class="row">
+            <label for="highlightColor">Your voice — colour</label>
+            <input type="color" id="highlightColor" value="#ff3b30" />
+          </div>
+          <p class="hint" id="highlightHint">
+            Put a 1–3 min clip of one person at
+            <code>helper/enroll/&lt;Name&gt;.wav</code> (mp3/m4a fine). With
+            Speaker labels on, that voice is detected and painted this colour.
+          </p>
+        </div>
+      </details>
+
+      <!-- Glossary -->
+      <details class="group">
+        <summary>
+          <svg class="grp-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+          Names &amp; terms glossary
+          <svg class="grp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </summary>
+        <div class="group-body">
+          <div class="glossary-block">
+            <textarea id="glossary" rows="5" spellcheck="false"
+              placeholder="Geralt&#10;Kaer Morhen = Kaer Morhen&#10;druh = buddy"></textarea>
+            <p class="hint" style="margin-top: 8px">
+              One entry per line: <code>term</code> or
+              <code>term = preferred</code>. Terms bias Whisper recognition and
+              keep translations consistent.
+            </p>
+          </div>
+        </div>
+      </details>
+
+      <!-- Status -->
+      <div class="status" id="status">
+        <span class="status-text">
+          <strong id="statusTitle">Checking helper…</strong>
+          <span class="detail" id="statusDetail">127.0.0.1:8765</span>
+        </span>
+      </div>
+
+      <button id="resetBtn" class="reset-btn" type="button"
+        title="Clear this video's saved transcript and translate it again from scratch">
+        ♻ Re-translate this video
+      </button>
+      <p class="reset-hint">
+        Use if captions look wrong, miss the start, or got stuck.
+      </p>
+    </main>
 
     <script src="popup.js"></script>
   </body>

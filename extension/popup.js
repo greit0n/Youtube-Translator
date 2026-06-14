@@ -43,6 +43,7 @@ const highlightColorEl = document.getElementById("highlightColor");
 const statusDot = document.getElementById("statusDot");
 const statusTitle = document.getElementById("statusTitle");
 const statusDetail = document.getElementById("statusDetail");
+const livePillText = document.getElementById("livePillText");
 
 // The model we want selected (stored value or default), applied once the
 // dropdown is populated from GET /models.
@@ -232,6 +233,11 @@ function setStatus(state, title, detail) {
   if (state) statusDot.classList.add(state);
   statusTitle.textContent = title;
   statusDetail.textContent = detail;
+  // Mirror the connection state into the compact header pill.
+  if (livePillText) {
+    livePillText.textContent =
+      state === "connected" ? "live" : state === "disconnected" ? "off" : "…";
+  }
 }
 
 async function checkHealth() {
