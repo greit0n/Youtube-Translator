@@ -10,10 +10,10 @@ const HELPER_MODELS = "http://127.0.0.1:8765/models";
 
 // Matches background.js DEFAULT_SETTINGS.
 const DEFAULTS = {
-  enabled: true,
-  language: null, // null = auto-detect
+  enabled: false,
+  language: "cs", // null = auto-detect
   fontSize: "medium",
-  engine: "ollama", // "whisper" | "ollama"
+  engine: "ollama", // "ollama" | "whisper"
   model: "gemma2:9b", // Ollama chat model
   preBuffer: true,
   autoPause: true, // pause until subtitles for "now" are ready
@@ -55,11 +55,10 @@ let desiredModel = DEFAULTS.model;
 
 function loadSettings() {
   chrome.storage.sync.get(Object.keys(DEFAULTS), (stored) => {
-    const enabled = stored.enabled !== false; // default true
     const language =
       stored.language === undefined ? DEFAULTS.language : stored.language;
     const fontSize = stored.fontSize || DEFAULTS.fontSize;
-    const engine = stored.engine === "whisper" ? "whisper" : "ollama";
+    const engine = stored.engine === "whisper" ? "whisper" : DEFAULTS.engine;
     const model = stored.model || DEFAULTS.model;
     const preBuffer = stored.preBuffer !== false; // default true
     const autoPause = stored.autoPause !== false; // default true
@@ -71,7 +70,7 @@ function loadSettings() {
     const highlightName = stored.highlightName || "";
     const highlightColor = stored.highlightColor || "#ff3b30";
 
-    enabledEl.checked = enabled;
+    enabledEl.checked = false;
     // language null -> "auto" option value
     languageEl.value = language === null ? "auto" : language;
     fontSizeEl.value = fontSize;
@@ -89,6 +88,7 @@ function loadSettings() {
     // Remember the desired model so it can be selected after /models loads.
     desiredModel = model;
     syncModelEnabled(engine);
+    refreshTabState();
   });
 }
 
@@ -103,8 +103,54 @@ function save(key, value) {
   chrome.storage.sync.set({ [key]: value });
 }
 
+function withActiveTab(callback) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs && tabs[0];
+    callback(tab && tab.id ? tab : null);
+  });
+}
+
+function refreshTabState() {
+  withActiveTab((tab) => {
+    if (!tab || !tab.url || !tab.url.startsWith("https://www.youtube.com/watch")) {
+      enabledEl.checked = false;
+      enabledEl.disabled = true;
+      return;
+    }
+    enabledEl.disabled = false;
+    chrome.tabs.sendMessage(tab.id, { type: "ytx-get-tab-state" }, (resp) => {
+      if (chrome.runtime.lastError || !resp || !resp.ok) {
+        enabledEl.checked = false;
+        return;
+      }
+      enabledEl.checked = resp.enabled === true;
+    });
+  });
+}
+
+function setTabEnabled(enabled) {
+  withActiveTab((tab) => {
+    if (!tab || !tab.url || !tab.url.startsWith("https://www.youtube.com/watch")) {
+      enabledEl.checked = false;
+      enabledEl.disabled = true;
+      return;
+    }
+    chrome.tabs.sendMessage(
+      tab.id,
+      { type: "ytx-set-tab-enabled", enabled },
+      (resp) => {
+        if (chrome.runtime.lastError || !resp || !resp.ok) {
+          enabledEl.checked = false;
+          return;
+        }
+        enabledEl.checked = resp.enabled === true;
+      }
+    );
+  });
+}
+
 enabledEl.addEventListener("change", () => {
-  save("enabled", enabledEl.checked);
+  setTabEnabled(enabledEl.checked);
 });
 
 languageEl.addEventListener("change", () => {
@@ -118,7 +164,7 @@ fontSizeEl.addEventListener("change", () => {
 });
 
 engineEl.addEventListener("change", () => {
-  const engine = engineEl.value === "whisper" ? "whisper" : "ollama";
+  const engine = engineEl.value === "ollama" ? "ollama" : "whisper";
   save("engine", engine);
   syncModelEnabled(engine);
 });

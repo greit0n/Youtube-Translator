@@ -7,9 +7,8 @@
 // Starter glossary (Czech → English). One entry per line: "term" or
 // "term = preferred". Comma-separated options on the right are treated by the
 // LLM as alternatives — it picks the one that best fits the sentence. Seeded
-// into storage on install AND whenever the user's glossary is empty (see below),
-// so it reaches existing installs on the next extension reload. Edit/clear it
-// freely in the popup; a non-empty value is never overwritten.
+// into storage on install. Versioned migrations may replace it when the shipped
+// default glossary is intentionally updated.
 const DEFAULT_GLOSSARY = `blbec = idiot, moron
 idiot = idiot
 debil = moron, dumbass
@@ -86,14 +85,52 @@ ježišmarja = oh my god
 no do píči = holy fuck
 cože = what
 jak jako = what do you mean
-to nemyslíš vážně = you can't be serious`;
+to nemyslíš vážně = you can't be serious
+do píči = holy fuck, fuck
+do pici = holy fuck, fuck
+chápu = I understand, I get it
+ch?pu = I understand, I get it
+vyhul = suck it
+vykuř mi ho = suck my dick
+vykur mi ho = suck my dick
+fakt mi ho vykuř = seriously suck my dick
+fakt mi ho vykur = seriously suck my dick
+fakt mi ho vykuš = seriously suck my dick
+fakt mi ho vykus = seriously suck my dick
+fuck mi ho = suck my dick
+vykuš mi ho = suck my dick
+vykus mi ho = suck my dick
+vykuš ty piču = suck it, you bitch
+vykuš ty píču = suck it, you bitch
+vykus ty picu = suck it, you bitch
+dej mi ho = give it to me
+dej mi ho dej mi ho = give it to me, give it to me
+pochcal = pissed myself
+nepochcal = didn't piss myself
+pochcat = piss myself
+oklepávám = shake my dick off after peeing
+Jsou prostě Bíčí varlata = They're just bull's balls
+Bíčí varlata = bull's balls
+býčí varlata = bull's balls
+varlata = balls, testicles
+koule = balls
+Můžu ty dveře zavřít hubu = Can those doors shut up
+zavřít hubu = shut up
+zavři hubu = shut up
+drž hubu = shut up
+sas = suspicious
+čum = look
+sus = suspicious
+pískání = whistling
+kecáš = you are joking
+časák = magazine`;
 
 // Single source of truth for default settings. Kept in sync with popup.js.
 const DEFAULT_SETTINGS = {
-  enabled: true, // master on/off switch
-  language: null, // null = auto-detect; otherwise an ISO code like "cs"
+  enabled: false, // legacy only; live activation is per-tab at runtime
+  language: "cs", // null = auto-detect; otherwise an ISO code like "cs"
   fontSize: "medium", // "small" | "medium" | "large"
-  // Translation engine: "whisper" (fast built-in) or "ollama" (faithful LLM).
+  // Translation engine: "ollama" (accurate Czech source-first) or "whisper" (fast direct).
   engine: "ollama",
   // Ollama chat model used when engine === "ollama".
   model: "gemma2:9b",
@@ -116,28 +153,42 @@ const DEFAULT_SETTINGS = {
   highlightColor: "#ff3b30"
 };
 
+const ACCURATE_CZECH_DEFAULTS_VERSION = 6;
+
 // On install / update, fill in any missing settings without clobbering
 // values the user may have already set.
 chrome.runtime.onInstalled.addListener(async () => {
   try {
     const current = await chrome.storage.sync.get([
       ...Object.keys(DEFAULT_SETTINGS),
-      "glossarySeeded"
+      "glossarySeeded",
+      "stabilizedDefaultsVersion"
     ]);
     const merged = {};
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       merged[key] = key in current ? current[key] : value;
     }
-    // Seed the starter glossary EXACTLY ONCE (first run of a build that knows
-    // the sentinel). This delivers the shipped default to EXISTING installs whose
-    // stored glossary is still empty, while RESPECTING a later deliberate clear:
-    // onInstalled also fires on every reload/update, so a plain empty-check would
-    // keep re-adding the glossary the user just cleared.
+    // Seed the starter glossary once for fresh installs.
     if (!current.glossarySeeded) {
       if (typeof merged.glossary !== "string" || merged.glossary.trim() === "") {
         merged.glossary = DEFAULT_SETTINGS.glossary;
       }
       merged.glossarySeeded = true;
+    }
+    // v6 makes the default quality-first for Agraelus-style Czech streams:
+    // forced Czech source transcription, Gemma translation, and no audio/speaker
+    // filters that could drop valid speech. It also intentionally replaces the
+    // stored starter glossary with the current maintained default.
+    if ((current.stabilizedDefaultsVersion || 0) < ACCURATE_CZECH_DEFAULTS_VERSION) {
+      merged.engine = "ollama";
+      merged.model = "gemma2:9b";
+      merged.language = "cs";
+      merged.cleanAudio = "off";
+      merged.diarize = false;
+      merged.enrolledOnly = false;
+      merged.enabled = false;
+      merged.glossary = DEFAULT_GLOSSARY;
+      merged.stabilizedDefaultsVersion = ACCURATE_CZECH_DEFAULTS_VERSION;
     }
     await chrome.storage.sync.set(merged);
   } catch (err) {

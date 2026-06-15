@@ -9,6 +9,8 @@ helper/enroll/*
 !helper/enroll/.gitkeep
 
 # Helper runtime artifacts
+helper/.venv/
+.venv/
 helper/*.log
 helper/cache/
 helper/__pycache__/
@@ -22,6 +24,10 @@ helper/cache/*.json
 # Whisper model downloads (large)
 *.bin
 models/
+
+# Generated/local planning artifacts
+roadmap.html
+helper/test_stabilize.py
 
 # OS / editor cruft
 .DS_Store

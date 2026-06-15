@@ -8,7 +8,7 @@ changes.
 Two modes:
 
 - `transcribe()`  -> task="translate": any language -> English directly with
-  Whisper. Used as the fallback engine (engine == "whisper").
+  Whisper. Used by the optional Fast Whisper engine (engine == "whisper").
 - `transcribe_source()` -> task="transcribe": faithful SOURCE-language text,
   which a local Ollama model then translates to English (engine == "ollama").
   This two-stage path preserves profanity / slang / names far better than
@@ -17,10 +17,9 @@ Two modes:
 Loads WhisperX large-v3 on the GPU (CUDA/float16) when available and falls back
 to CPU/int8 otherwise.
 
-KEY WhisperX DIFFERENCE: the `task` ("translate" vs "transcribe") is baked into
-the model at `whisperx.load_model(...)`, NOT passed per-call like
-faster-whisper. Our two engines need different tasks, so the model singleton is
-keyed by **(name, task)** and reloaded when either changes.
+WhisperX accepts `task` ("translate" vs "transcribe") per transcription call
+when no fixed language tokenizer is loaded. The helper therefore keeps one
+model/profile resident and switches task per window instead of reloading.
 
 CLI:
     python transcribe.py <audio_file> [language]
@@ -43,12 +42,14 @@ MODEL_NAME = "large-v3"
 # sentence-sized segments; a small chunk_size restores that bite-sized feel.
 CHUNK_SIZE = 6.0
 
-# Cached singletons so the (expensive) model load happens at most once.
-# The model is keyed by (name, task): WhisperX bakes the task into the loaded
-# model, so a task change forces a reload just like a model-name change does.
+# Cached singletons so the expensive model load happens only when the actual
+# model/profile changes. WhisperX accepts `task` per transcribe() call when no
+# fixed language tokenizer is loaded, so translate/transcribe must NOT force a
+# reload by themselves.
 _model = None
 _model_name: Optional[str] = None  # name of the currently loaded model
-_model_task: Optional[str] = None  # task baked into the currently loaded model
+_model_task: Optional[str] = None  # last requested task, for diagnostics only
+_model_profile: Optional[Tuple[str, int, str, str]] = None
 _device: Optional[str] = None
 _compute_type: Optional[str] = None
 
@@ -108,7 +109,7 @@ def get_model_name() -> str:
 
 
 def get_model_task() -> Optional[str]:
-    """Task baked into the currently loaded model, or None if none loaded."""
+    """Last task requested by a caller, or None if no model has loaded."""
     return _model_task
 
 
@@ -159,33 +160,35 @@ def load_model(
     hotwords: Optional[str] = None,
     initial_prompt: Optional[str] = None,
 ):
-    """Load a WhisperX model (singleton, keyed by (name, task)) and cache it.
+    """Load a WhisperX model (singleton, keyed by model/profile) and cache it.
 
     `name` selects the Whisper model tier; when None it is auto-resolved from
-    available VRAM via resolve_model("auto"). `task` is baked into the WhisperX
-    model ("translate" -> English; "transcribe" -> faithful source language).
+    available VRAM via resolve_model("auto"). `task` is passed per transcription
+    call; it is not part of the expensive model cache key.
 
-    The model is a singleton keyed by (name, task): re-requesting the same
-    (name, task) is a no-op, but switching EITHER frees the old model (and the
-    CUDA cache) before loading the new one so we don't hold two large models in
-    VRAM at once.
+    The model is keyed by (name, beam size, hotwords, initial prompt). Switching
+    those frees the old model and CUDA cache before loading the new one so we
+    don't hold two large models in VRAM at once.
 
     Returns the loaded model and sets module globals describing the loaded model
     name, task, real device, and compute type so the server can report them.
     """
-    global _model, _model_name, _model_task, _device, _compute_type
+    global _model, _model_name, _model_task, _model_profile, _device, _compute_type
 
     name = name or resolve_model("auto")
+    profile = (name, int(beam_size or 5), hotwords or "", initial_prompt or "")
 
-    # Already loaded AND it's the requested (name, task) -> reuse.
-    if _model is not None and _model_name == name and _model_task == task:
+    # Already loaded with the same model/profile -> reuse even if the task flips.
+    if _model is not None and _model_profile == profile:
+        _model_task = task
         return _model
 
-    # A DIFFERENT (name, task) is loaded -> free it before loading the new one.
+    # A different model/profile is loaded -> free it before loading the new one.
     if _model is not None:
         _model = None
         _model_name = None
         _model_task = None
+        _model_profile = None
         try:
             import torch
 
@@ -224,6 +227,7 @@ def load_model(
 
     _model_name = name
     _model_task = task
+    _model_profile = profile
     _device = device
     _compute_type = compute_type
     return _model
@@ -244,14 +248,16 @@ def is_loaded() -> bool:
     return _model is not None
 
 
-def _segment_language(model, audio, start: float, end: float, fallback: str) -> str:
+def _segment_language(
+    model, audio, start: float, end: float, fallback: str
+) -> Tuple[str, float]:
     """Detect the spoken language of ONE segment by slicing the window audio.
 
     WhisperX detects a single language for the whole window, so a mixed window
     (e.g. a Czech streamer over English game audio) leaks the other language
     through a window-level filter. Per-segment detection fixes that: it's cheap
     (one encoder pass on a short slice) and measured ~0.9+ confident even on 6s
-    chunks. Returns `fallback` on any error.
+    chunks. Returns `(fallback, 0.0)` on any error.
     """
     try:
         sr = 16000
@@ -264,11 +270,94 @@ def _segment_language(model, audio, start: float, end: float, fallback: str) -> 
         lo = max(0, int(start * sr))
         hi = min(len(audio), int(end * sr))
         if hi - lo < int(0.4 * sr):
-            return fallback
+            return fallback, 0.0
         lang, _prob, _all = model.model.detect_language(audio=audio[lo:hi])
-        return lang or fallback
+        try:
+            prob = float(_prob)
+        except (TypeError, ValueError):
+            prob = 0.0
+        return lang or fallback, prob
     except Exception:
-        return fallback
+        return fallback, 0.0
+
+
+def _audio_has_signal(audio) -> bool:
+    """True when a decoded mono float waveform is not effectively silent."""
+    try:
+        import numpy as np
+
+        if audio is None or len(audio) == 0:
+            return False
+        arr = np.asarray(audio, dtype="float32")
+        rms = float(np.sqrt(np.mean(np.square(arr))))
+        peak = float(np.max(np.abs(arr)))
+        return rms >= 0.003 and peak >= 0.02
+    except Exception:
+        return False
+
+
+def audio_has_signal_file(audio_path: str) -> bool:
+    """Cheap public helper for the server's cache-persistence decision."""
+    try:
+        import whisperx
+
+        return _audio_has_signal(whisperx.load_audio(audio_path))
+    except Exception:
+        return False
+
+
+def _fallback_no_vad(
+    model,
+    audio,
+    task: str,
+    language: Optional[str],
+    time_offset: float,
+    hotwords: Optional[str],
+    initial_prompt: Optional[str],
+    detect_per_segment: bool,
+    detected: str,
+    detected_prob: float = 0.0,
+) -> Iterator[Tuple[float, float, str, str, float]]:
+    """Conservative faster-whisper fallback when WhisperX VAD finds nothing.
+
+    This bypasses VAD for audible windows where speech may be masked by game
+    audio/music. Low-confidence hallucination-looking segments are discarded.
+    """
+    segments, info = model.model.transcribe(
+        audio,
+        language=language,
+        task=task,
+        beam_size=5,
+        best_of=5,
+        condition_on_previous_text=False,
+        vad_filter=False,
+        hotwords=hotwords,
+        initial_prompt=initial_prompt,
+        no_speech_threshold=0.75,
+    )
+    fallback_lang = getattr(info, "language", None) or detected or language or "unknown"
+    try:
+        fallback_prob = float(getattr(info, "language_probability", detected_prob) or 0.0)
+    except (TypeError, ValueError):
+        fallback_prob = detected_prob
+
+    for seg in segments:
+        text = (getattr(seg, "text", "") or "").strip()
+        if not text:
+            continue
+        avg_logprob = float(getattr(seg, "avg_logprob", 0.0) or 0.0)
+        no_speech_prob = float(getattr(seg, "no_speech_prob", 0.0) or 0.0)
+        if no_speech_prob > 0.85 and avg_logprob < -0.8:
+            continue
+        start = float(getattr(seg, "start", 0.0) or 0.0)
+        end = float(getattr(seg, "end", start) or start)
+        if end <= start:
+            continue
+        if detect_per_segment:
+            seg_lang, seg_prob = _segment_language(model, audio, start, end, fallback_lang)
+        else:
+            seg_lang, seg_prob = fallback_lang, fallback_prob
+        yield (start + time_offset, end + time_offset, text, seg_lang, seg_prob)
 
 
 def transcribe(
@@ -280,8 +369,8 @@ def transcribe(
     beam_size: int = 5,
     model_name: Optional[str] = None,
     detect_per_segment: bool = False,
-) -> Iterator[Tuple[float, float, str, str]]:
-    """Translate `audio_path` to English, yielding (start, end, text, detected)
+) -> Iterator[Tuple[float, float, str, str, float]]:
+    """Translate `audio_path` to English, yielding (start, end, text, detected, confidence)
     segments where `detected` is the auto-detected SOURCE language code (so the
     caller can filter windows by spoken language).
 
@@ -332,21 +421,64 @@ def transcribe(
     # language (e.g. subtitle Czech, skip English game audio). Forcing would make
     # whisper transcribe English-as-Czech garbage instead of detecting "en".
     kwargs = dict(batch_size=16, task="translate", chunk_size=CHUNK_SIZE)
-    result = model.transcribe(audio, **kwargs)
+    try:
+        result = model.transcribe(audio, **kwargs)
+    except Exception as exc:
+        if not _audio_has_signal(audio):
+            return
+        print(
+            "[ytx] WhisperX VAD failed; falling back to no-vad transcription:",
+            str(exc)[:180],
+            flush=True,
+        )
+        yield from _fallback_no_vad(
+            model,
+            audio,
+            "translate",
+            None,
+            time_offset,
+            hotwords,
+            initial_prompt,
+            detect_per_segment,
+            language or "unknown",
+        )
+        return
 
     detected = result.get("language") or language or "unknown"
-    for seg in result.get("segments", []):
+    segments = result.get("segments", [])
+    if not segments and _audio_has_signal(audio):
+        yield from _fallback_no_vad(
+            model,
+            audio,
+            "translate",
+            None,
+            time_offset,
+            hotwords,
+            initial_prompt,
+            detect_per_segment,
+            detected,
+        )
+        return
+
+    for seg in segments:
         text = (seg.get("text") or "").strip()
         if not text:
             continue
         # Per-segment language so a mixed window can be filtered line-by-line
         # (e.g. keep Czech speech, drop the English game audio in the same window).
-        seg_lang = (
-            _segment_language(model, audio, seg["start"], seg["end"], detected)
-            if detect_per_segment
-            else detected
+        if detect_per_segment:
+            seg_lang, seg_prob = _segment_language(
+                model, audio, seg["start"], seg["end"], detected
+            )
+        else:
+            seg_lang, seg_prob = detected, 0.0
+        yield (
+            seg["start"] + time_offset,
+            seg["end"] + time_offset,
+            text,
+            seg_lang,
+            seg_prob,
         )
-        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, seg_lang)
 
 
 def transcribe_source(
@@ -357,14 +489,14 @@ def transcribe_source(
     initial_prompt: Optional[str] = None,
     model_name: Optional[str] = None,
     detect_per_segment: bool = False,
-) -> Iterator[Tuple[float, float, str, str]]:
+) -> Iterator[Tuple[float, float, str, str, float]]:
     """Transcribe `audio_path` in its SOURCE language (no translation).
 
     Same shape as `transcribe()` but task="transcribe", and each yielded tuple
     additionally carries the detected source language code so the server can
     build a faithful LLM translation prompt:
 
-        (start, end, text, lang)
+        (start, end, text, lang, language_confidence)
 
     `hotwords` / `initial_prompt` are applied via load-time asr_options (see the
     note in `transcribe()`).
@@ -386,24 +518,68 @@ def transcribe_source(
     kwargs = dict(batch_size=16, task="transcribe", chunk_size=CHUNK_SIZE)
     if language is not None:
         kwargs["language"] = language
-    result = model.transcribe(audio, **kwargs)
+    try:
+        result = model.transcribe(audio, **kwargs)
+    except Exception as exc:
+        if not _audio_has_signal(audio):
+            return
+        print(
+            "[ytx] WhisperX VAD failed; falling back to no-vad transcription:",
+            str(exc)[:180],
+            flush=True,
+        )
+        yield from _fallback_no_vad(
+            model,
+            audio,
+            "transcribe",
+            language,
+            time_offset,
+            hotwords,
+            initial_prompt,
+            detect_per_segment,
+            language or "unknown",
+        )
+        return
 
     # result["language"] is the detected (or forced) source language code.
     detected = result.get("language") or language or "unknown"
 
-    for seg in result.get("segments", []):
+    segments = result.get("segments", [])
+    if not segments and _audio_has_signal(audio):
+        yield from _fallback_no_vad(
+            model,
+            audio,
+            "transcribe",
+            language,
+            time_offset,
+            hotwords,
+            initial_prompt,
+            detect_per_segment,
+            detected,
+        )
+        return
+
+    for seg in segments:
         text = (seg.get("text") or "").strip()
         if not text:
             continue
         # When a forced `language` is set we trust it; otherwise optionally
         # detect per segment so a mixed window can be filtered line-by-line.
         if language is not None:
-            seg_lang = language
+            seg_lang, seg_prob = language, 1.0
         elif detect_per_segment:
-            seg_lang = _segment_language(model, audio, seg["start"], seg["end"], detected)
+            seg_lang, seg_prob = _segment_language(
+                model, audio, seg["start"], seg["end"], detected
+            )
         else:
-            seg_lang = detected
-        yield (seg["start"] + time_offset, seg["end"] + time_offset, text, seg_lang)
+            seg_lang, seg_prob = detected, 0.0
+        yield (
+            seg["start"] + time_offset,
+            seg["end"] + time_offset,
+            text,
+            seg_lang,
+            seg_prob,
+        )
 
 
 def _format_ts(seconds: float) -> str:
@@ -429,7 +605,7 @@ def main(argv: list[str]) -> int:
         file=sys.stderr,
     )
 
-    for start, end, text, detected in transcribe(audio_path, language=language):
+    for start, end, text, detected, _prob in transcribe(audio_path, language=language):
         print(f"[{_format_ts(start)} --> {_format_ts(end)}] ({detected}) {text}")
 
     return 0

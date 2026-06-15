@@ -97,7 +97,7 @@ Constants: `RESUME_MARGIN = 1.5` (s).
 - `extension/popup.html`, `extension/popup.js` — `autoPause` toggle.
 - `extension/background.js` — default seed.
 - `extension/manifest.json` — bump `version`.
-- `CLAUDE.md` (WS protocol section) + `helper/README.md` — document enriched
+- `AGENTS.md` (WS protocol section) + `helper/README.md` — document enriched
   `progress` frame.
 
 ## Edge cases

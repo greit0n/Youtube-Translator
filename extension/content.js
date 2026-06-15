@@ -21,10 +21,10 @@
 
   // Current settings, mirrored from chrome.storage.sync.
   let settings = {
-    enabled: true,
-    language: null, // null = auto-detect
+    enabled: false,
+    language: "cs", // null = auto-detect
     fontSize: "medium",
-    engine: "ollama", // "whisper" (fast built-in) | "ollama" (faithful LLM)
+    engine: "ollama", // "ollama" (accurate Czech) | "whisper" (fast direct)
     model: "gemma2:9b", // Ollama chat model (used when engine === "ollama")
     preBuffer: true, // ask the helper to look ahead / pre-buffer
     autoPause: true, // pause playback until subtitles for "now" are ready
@@ -465,7 +465,7 @@
   // Parse the multiline glossary setting into { hotwords, glossary }.
   //   Each non-empty line is either "term" or "term = preferred".
   //   hotwords: all terms space-joined (string), or null if none.
-  //   glossary: array of {term, preferred} for lines that contain "=".
+  //   glossary: array of {term, preferred}; bare terms use preferred="".
   function parseGlossary(text) {
     const lines = (text || "").split("\n");
     const terms = [];
@@ -478,7 +478,8 @@
         const term = line.slice(0, eqIdx).trim();
         const preferred = line.slice(eqIdx + 1).trim();
         if (term) {
-          terms.push(term);
+          // Translation pairs are for the LLM only. Feeding English preferred
+          // words into Whisper hotwords can bias recognition away from Czech.
           pairs.push({ term, preferred });
         }
       } else {
@@ -526,8 +527,10 @@
         cleanAudio: settings.cleanAudio, // "off" | "light" | "music"
         diarize: settings.diarize, // bool: speaker diarization
         enrolledOnly: settings.enrolledOnly, // bool: show only the enrolled voice
-        hotwords: g.hotwords, // space-joined terms from glossary (or null)
-        glossary: g.glossary // [{term, preferred}, ...] for "=" lines
+        // Accurate Czech uses the glossary only in Gemma. Whisper hotwords made
+        // Czech ASR worse in testing, so only the fast direct mode sends them.
+        hotwords: settings.engine === "whisper" ? g.hotwords : null,
+        glossary: g.glossary // [{term, preferred}, ...]
       };
       try {
         socket.send(JSON.stringify(startMsg));
@@ -950,12 +953,13 @@
 
   function loadSettingsThenInit() {
     chrome.storage.sync.get(
-      ["enabled", "language", "fontSize", "engine", "model", "preBuffer", "autoPause",
+      ["language", "fontSize", "engine", "model", "preBuffer", "autoPause",
        "quality", "cleanAudio", "diarize", "enrolledOnly", "glossary", "highlightName", "highlightColor"],
       (stored) => {
-      settings.enabled = stored.enabled !== false; // default true
+      // Activation is per-tab runtime state. Preferences are synced globally,
+      // but every new tab stays idle until the popup toggles this tab on.
       settings.language =
-        stored.language === undefined ? null : stored.language;
+        stored.language === undefined ? "cs" : stored.language;
       settings.fontSize = stored.fontSize || "medium";
       settings.engine = stored.engine === "whisper" ? "whisper" : "ollama";
       settings.model = stored.model || "gemma2:9b";
@@ -968,8 +972,8 @@
       settings.glossary = stored.glossary || "";
       settings.highlightName = stored.highlightName || "";
       settings.highlightColor = stored.highlightColor || "#ff3b30";
-      if (settings.enabled) {
-        startSession();
+      if (settings.enabled && getVideoIdFromUrl()) {
+        scheduleReinit();
       }
     });
   }
@@ -978,13 +982,9 @@
     if (area !== "sync") return;
     let needsReinit = false;
 
-    if ("enabled" in changes) {
-      settings.enabled = changes.enabled.newValue !== false;
-      needsReinit = true;
-    }
     if ("language" in changes) {
       const v = changes.language.newValue;
-      settings.language = v === undefined ? null : v;
+      settings.language = v === undefined ? "cs" : v;
       needsReinit = true; // language affects the helper start message
     }
     if ("fontSize" in changes) {
@@ -1063,7 +1063,40 @@
   // the session so it re-transcribes from scratch. Useful when a cache is
   // wrong/partial (e.g. poisoned by a session that began mid-video).
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (!msg || msg.type !== "ytx-reset") return;
+    if (!msg || !msg.type) return;
+
+    if (msg.type === "ytx-get-tab-state") {
+      if (sendResponse) {
+        sendResponse({
+          ok: true,
+          enabled: settings.enabled === true,
+          videoId: getVideoIdFromUrl(),
+          active: !!session
+        });
+      }
+      return true;
+    }
+
+    if (msg.type === "ytx-set-tab-enabled") {
+      settings.enabled = msg.enabled === true;
+      if (settings.enabled) {
+        scheduleReinit();
+      } else {
+        teardownSession();
+        removeOverlay();
+      }
+      if (sendResponse) {
+        sendResponse({
+          ok: true,
+          enabled: settings.enabled,
+          videoId: getVideoIdFromUrl(),
+          active: !!session
+        });
+      }
+      return true;
+    }
+
+    if (msg.type !== "ytx-reset") return;
     const videoId = getVideoIdFromUrl();
     const restart = () => {
       teardownSession();

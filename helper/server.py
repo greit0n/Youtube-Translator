@@ -16,6 +16,8 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -39,7 +41,142 @@ PORT = 8765
 # confirm the RUNNING process is current — restarting the helper is the #1 cause
 # of "I fixed it but nothing changed" (stale code keeps serving). Bump in lockstep
 # with extension/manifest.json when shipping behaviour changes.
-HELPER_VERSION = "1.7.3"
+HELPER_VERSION = "1.10.6"
+
+# Cache/runtime behavior version. Bumping this bypasses old poisoned caches
+# without deleting them.
+PIPELINE_CACHE_VERSION = "accurate-cs-audio-v9"
+
+# Language filtering is intentionally tolerant for Agraelus/Czech streams:
+# only drop high-confidence non-target speech and keep uncertain segments.
+LANGUAGE_DROP_CONFIDENCE = 0.80
+
+def _parse_static_glossary(text: str) -> list[dict]:
+    entries = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or "=" not in line:
+            continue
+        term, preferred = line.split("=", 1)
+        entries.append({"term": term.strip(), "preferred": preferred.strip()})
+    return entries
+
+
+SERVER_GLOSSARY_HINTS = _parse_static_glossary("""blbec = idiot, moron
+idiot = idiot
+debil = moron, dumbass
+magor = psycho, nutcase
+kretén = cretin, idiot
+vůl = idiot, dumb ox
+pitomec = fool, idiot
+trouba = dummy, fool
+dement = moron, idiot
+retard = retard
+
+kokot = asshole, dickhead
+píča = cunt, dumb bitch
+čurák = dickhead, prick
+zmrd = scumbag, motherfucker
+mrdka = piece of shit
+sráč = asshole, coward
+hajzl = asshole, bastard
+kunda = cunt
+buzna = faggot
+šulina = dickhead, little dick
+
+do prdele = for fuck's sake, damn it
+kurva = fuck
+kurva fix = fucking hell
+ty vole = dude, bro, holy shit
+doprdele práce = for fuck's sake
+ježiši kriste = Jesus Christ
+sakra = damn
+do hajzlu = go to hell, fuck this
+no ty píčo = holy fuck
+kurva drát = fucking hell
+
+co to je za kokotinu = what is this bullshit
+to si děláš prdel = are you kidding me
+běž do prdele = fuck off
+ses posral ne = are you out of your mind
+to je úplně v píči = this is completely fucked
+tak tohle je mrdka = this is garbage
+co je to za bullshit = what is this bullshit
+ty vole neee = dude noooo
+kurvaaa = fuuuck
+
+cringe = cringe
+npc = npc
+brainrot = brainrot
+autista = autist (insult)
+lobotom = lobotomite, brain-dead person
+schizo = schizo
+opice = monkey, ape
+klaun = clown
+klauníček = little clown
+copium = copium
+cope = cope
+
+kkt = asshole, dickhead
+p*ča = cunt
+pica = cunt
+pyčo = fuck, holy shit
+pyčo vole = holy fuck dude
+čůrák = dickhead
+curak = dickhead
+kokutek = little dickhead
+kokůtek = little dickhead
+krva = fuck
+kruci = darn, dang
+doprkna = damn it
+
+kámo = bro, mate
+brácho = brother, bro
+no tak = come on
+počkej = wait
+ježišmarja = oh my god
+no do píči = holy fuck
+cože = what
+jak jako = what do you mean
+to nemyslíš vážně = you can't be serious
+do píči = holy fuck, fuck
+do pici = holy fuck, fuck
+chápu = I understand, I get it
+ch?pu = I understand, I get it
+vyhul = suck it
+vykuř mi ho = suck my dick
+vykur mi ho = suck my dick
+fakt mi ho vykuř = seriously suck my dick
+fakt mi ho vykur = seriously suck my dick
+fakt mi ho vykuš = seriously suck my dick
+fakt mi ho vykus = seriously suck my dick
+fuck mi ho = suck my dick
+vykuš mi ho = suck my dick
+vykus mi ho = suck my dick
+vykuš ty piču = suck it, you bitch
+vykuš ty píču = suck it, you bitch
+vykus ty picu = suck it, you bitch
+dej mi ho = give it to me
+dej mi ho dej mi ho = give it to me, give it to me
+pochcal = pissed myself
+nepochcal = didn't piss myself
+pochcat = piss myself
+oklepávám = shake my dick off after peeing
+Jsou prostě Bíčí varlata = They're just bull's balls
+Bíčí varlata = bull's balls
+býčí varlata = bull's balls
+varlata = balls, testicles
+koule = balls
+Můžu ty dveře zavřít hubu = Can those doors shut up
+zavřít hubu = shut up
+zavři hubu = shut up
+drž hubu = shut up
+sas = suspicious
+čum = look
+sus = suspicious
+pískání = whistling
+kecáš = you are joking
+časák = magazine""")
 
 # Stay this many seconds AHEAD of the client's current playback position.
 LEAD = 90.0
@@ -222,6 +359,110 @@ def _drain(gen) -> list:
     return list(gen)
 
 
+def _short_hash(value) -> str:
+    """Stable short hash for cache-profile dimensions."""
+    if value in (None, "", [], {}):
+        return "none"
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
+
+
+def _with_server_glossary_hints(glossary: list | None) -> list:
+    """Append critical built-in hints without overwriting user choices."""
+    out = []
+    seen = set()
+    for entry in glossary or []:
+        term = (entry.get("term") if isinstance(entry, dict) else "") or ""
+        key = term.strip().lower()
+        if not key:
+            continue
+        out.append(entry)
+        seen.add(key)
+    for entry in SERVER_GLOSSARY_HINTS:
+        key = entry["term"].lower()
+        if key not in seen:
+            out.append(entry)
+            seen.add(key)
+    return out
+
+
+def _cache_model_for(engine: str, model: str | None) -> str:
+    """Only Ollama's selected chat model affects output."""
+    return model if engine == "ollama" else "whisper"
+
+
+def _cache_variant(
+    whisper_model: str,
+    clean_audio: str,
+    diarize: bool,
+    enrolled_only: bool,
+    language: str | None,
+    hotwords: str | None,
+    glossary: list | None,
+    source_profile: str = "asr",
+) -> str:
+    return "|".join(
+        [
+            PIPELINE_CACHE_VERSION,
+            whisper_model,
+            f"source-{source_profile}",
+            clean_audio,
+            "diar" if diarize else "mono",
+            "eo" if enrolled_only else "all",
+            f"lang-{language or 'auto'}",
+            f"hot-{_short_hash(hotwords)}",
+            f"gloss-{_short_hash(glossary)}",
+        ]
+    )
+
+
+def _filter_segments_by_language(segs: list, language: str | None) -> tuple[list, bool, int]:
+    """Drop only high-confidence non-target segments.
+
+    Returns (kept_segments, filtered_empty, dropped_count). `filtered_empty`
+    identifies windows that should not be persisted as permanently covered.
+    """
+    if not language or not segs:
+        return segs, False, 0
+
+    kept = []
+    dropped = 0
+    for seg in segs:
+        lang = seg[3] if len(seg) > 3 else None
+        try:
+            confidence = float(seg[4]) if len(seg) > 4 else 0.0
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        if (
+            lang
+            and lang != "unknown"
+            and lang != language
+            and confidence >= LANGUAGE_DROP_CONFIDENCE
+        ):
+            dropped += 1
+            continue
+        kept.append(seg)
+
+    return kept, bool(dropped and not kept), dropped
+
+
+def _should_persist_window(
+    produced: list[dict],
+    filtered_empty: bool,
+    eo_filter_failed: bool,
+    window_had_signal: bool,
+) -> bool:
+    if eo_filter_failed or filtered_empty:
+        return False
+    # Audible windows with no captions are exactly the class of cache poison we
+    # want to avoid. Keep them covered for this session, but let a future run
+    # retry with better position/model/settings.
+    if not produced and window_had_signal:
+        return False
+    return True
+
+
 def _fetch_window_with_retry(
     video_id: str, url_box: list, start: float, duration: float, on_proc=None,
     timeout: float = audio.FETCH_TIMEOUT,
@@ -272,51 +513,70 @@ async def transcribe_ws(ws: WebSocket) -> None:
         video_id = req.get("videoId")
         start_time = float(req.get("startTime") or 0.0)
         language = req.get("language")  # None => auto-detect
-        engine = (req.get("engine") or "whisper").lower()
+        engine = (req.get("engine") or "ollama").lower()
         model = req.get("model") or translate_llm.DEFAULT_MODEL
         pre_buffer = bool(req.get("preBuffer"))
-        hotwords = req.get("hotwords")
+        client_hotwords = req.get("hotwords")
         quality = req.get("quality") or "auto"
         clean_audio = req.get("cleanAudio") or "off"
         diarize = bool(req.get("diarize"))
         enrolled_only = bool(req.get("enrolledOnly"))
         # Enrolled-only needs speaker tags to filter on, so force diarization on.
         diarize = diarize or enrolled_only
-        glossary = req.get("glossary") or []  # [{term, preferred}, ...]
+        glossary = _with_server_glossary_hints(
+            req.get("glossary") or []
+        )  # [{term, preferred}, ...]
 
         if not video_id:
             await ws.send_json({"type": "error", "message": "missing videoId"})
             return
 
         if engine not in ("ollama", "whisper"):
-            engine = "whisper"
+            engine = "ollama"
 
         # task is fixed by engine: whisper translates directly; ollama keeps the
         # faithful source transcript and translates it with the LLM.
         task = "translate" if engine == "whisper" else "transcribe"
+        # Accurate source-first mode must not feed slang/profanity glossary terms
+        # into Whisper. In testing, hotwords corrupted Czech ASR ("ch?pu", etc.).
+        asr_hotwords = client_hotwords if engine == "whisper" else None
 
         # Resolve the Whisper model tier from the Quality setting (VRAM-adaptive
         # for "auto"). This feeds both the cache variant and the model load.
         whisper_model = transcribe.resolve_model(quality)
-
-        # Cache variant captures output-affecting dims so different quality/clean/diarize
-        # combos get separate cache files.
-        variant = f"{whisper_model}|{clean_audio}|{'diar' if diarize else 'mono'}|{'eo' if enrolled_only else 'all'}"
-
-        _log(
-            f"session video={video_id} start={start_time:.1f} engine={engine} "
-            f"preBuffer={pre_buffer} quality={quality} whisper_model={whisper_model} "
-            f"clean={clean_audio} diarize={diarize} enrolled_only={enrolled_only} "
-            f"cookies={audio.cookies_source()}"
-        )
 
         sess.current_time = start_time
 
         # Start following the client's playback position immediately.
         reader_task = asyncio.create_task(_position_reader(ws, sess))
 
+        source_profile = "asr"
+
+        # Cache variant captures output-affecting dims and a pipeline version so
+        # older poisoned empty/Ollama caches are bypassed automatically.
+        variant = _cache_variant(
+            whisper_model,
+            clean_audio,
+            diarize,
+            enrolled_only,
+            language,
+            asr_hotwords,
+            glossary if engine == "ollama" else None,
+            source_profile,
+        )
+        cache_model = _cache_model_for(engine, model)
+
+        _log(
+            f"session video={video_id} start={start_time:.1f} engine={engine} "
+            f"source={source_profile} preBuffer={pre_buffer} quality={quality} "
+            f"whisper_model={whisper_model} clean={clean_audio} diarize={diarize} "
+            f"enrolled_only={enrolled_only} cookies={audio.cookies_source()}"
+        )
+
         # --- Serve cached segments + load interval coverage -----------------
-        cached = cache.load(video_id, language, task, engine, model, variant=variant)
+        cached = cache.load(
+            video_id, language, task, engine, cache_model, variant=variant
+        )
         covered: list = []
 
         if cached is not None:
@@ -339,6 +599,12 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     frame["speaker"] = seg["speaker"]
                 if seg.get("enrolled"):
                     frame["enrolled"] = True
+                if "source" in seg:
+                    frame["source"] = seg["source"]
+                if "sourceLang" in seg:
+                    frame["sourceLang"] = seg["sourceLang"]
+                if "sourceKind" in seg:
+                    frame["sourceKind"] = seg["sourceKind"]
                 await ws.send_json(frame)
 
         # --- Make sure the Whisper model is ready --------------------------
@@ -346,14 +612,9 @@ async def transcribe_ws(ws: WebSocket) -> None:
             return
 
         # The background load picks the auto tier; if this session needs a
-        # different model (explicit Quality override, or auto on a machine the
-        # background load mis-sized), switch it now. With WhisperX the `task` is
-        # baked into the model, so we ALSO reload when the loaded task differs
-        # from this session's task. Reloads are rare.
-        if (
-            transcribe.get_model_name() != whisper_model
-            or transcribe.get_model_task() != task
-        ):
+        # different model, switch it now. The translate/transcribe task is passed
+        # per call and must not force a reload.
+        if transcribe.get_model_name() != whisper_model:
             await ws.send_json({"type": "status", "message": "switching model"})
             try:
                 await asyncio.to_thread(transcribe.load_model, whisper_model, task)
@@ -397,10 +658,10 @@ async def transcribe_ws(ws: WebSocket) -> None:
 
         await ws.send_json({"type": "status", "message": "transcribing"})
 
-        # Effective engine may downgrade to whisper if Ollama dies mid-session.
+        # Effective engine stays fixed. Accurate source-first mode must not
+        # silently downgrade to direct Whisper when Ollama fails, because that
+        # caches softened/inaccurate translations as if they were good.
         eff_engine = engine
-        # Whether we've already warned the client about the Ollama fallback.
-        warned_ollama = False
         # Whether we've already warned the client that diarization is unavailable
         # (no HF token / missing libs) — sent at most once per session.
         warned_diarize = False
@@ -408,8 +669,7 @@ async def transcribe_ws(ws: WebSocket) -> None:
         # (no enrolled voice / diarization unavailable) — sent at most once.
         warned_eo = False
 
-        # eff_task tracks the task actually written to cache (whisper fallback
-        # writes English under "translate", not the source transcript).
+        # eff_task tracks the task written to cache.
         eff_task = "translate" if eff_engine == "whisper" else "transcribe"
         fetch_fails = 0  # consecutive throttled/failed fetches
 
@@ -492,32 +752,39 @@ async def transcribe_ws(ws: WebSocket) -> None:
             # lazy + graceful: it returns wav_path unchanged on off/missing-lib/
             # failure, and can be heavy -> run on a worker thread.
             clean_wav = await asyncio.to_thread(denoise.clean, wav_path, clean_audio)
+            window_had_signal = await asyncio.to_thread(
+                transcribe.audio_has_signal_file, clean_wav
+            )
 
             try:
                 if eff_engine == "whisper":
                     # Fast beam at the playhead (latency is felt here); full beam
                     # for pre-buffered windows you haven't reached yet (quality).
                     beam = 1 if at_playhead else 5
-                    # transcribe() now yields (s, e, t, detected_lang) and does
+                    # transcribe() now yields (s, e, t, detected_lang, confidence) and does
                     # NOT force the language (so we can filter by what's actually
                     # spoken). detected is used by the language filter below.
                     segs = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe(
                             clean_wav, time_offset=cursor,
-                            hotwords=hotwords, beam_size=beam,
+                            hotwords=asr_hotwords, beam_size=beam,
                             model_name=whisper_model,
                             detect_per_segment=bool(language),
                         ),
                     )
                 else:
-                    # language=None -> auto-detect so the filter below can work.
+                    # Accurate source-first mode: force the selected source
+                    # language (default "cs") and do not run per-segment language
+                    # filtering. This preserves Czech profanity/slang instead of
+                    # dropping uncertain windows or translating directly.
+                    source_language = language or None
                     segs = await asyncio.to_thread(
                         _drain,
                         transcribe.transcribe_source(
-                            clean_wav, language=None, time_offset=cursor,
-                            hotwords=hotwords, model_name=whisper_model,
-                            detect_per_segment=bool(language),
+                            clean_wav, language=source_language, time_offset=cursor,
+                            hotwords=None, model_name=whisper_model,
+                            detect_per_segment=False,
                         ),
                     )
 
@@ -526,14 +793,19 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 # language — e.g. subtitle the Czech streamer but drop the English
                 # game audio EVEN WITHIN THE SAME WINDOW. Each seg carries its own
                 # detected language (4th tuple element) via per-segment detection.
-                if language and segs and not enrolled_only:
+                if eff_engine == "whisper" and language and segs and not enrolled_only:
                     before = len(segs)
-                    segs = [s for s in segs if (s[3] or language) == language]
-                    if len(segs) != before:
+                    segs, filtered_empty, dropped = _filter_segments_by_language(
+                        segs, language
+                    )
+                    if dropped:
                         _log(
                             f"window [{cursor:.1f},{window_end:.1f}] "
-                            f"lang-filter={language}: kept {len(segs)}/{before} segs"
+                            f"lang-filter={language}: kept {len(segs)}/{before} "
+                            f"(dropped high-confidence non-target={dropped})"
                         )
+                else:
+                    filtered_empty = False
 
                 # Optional speaker diarization: tag each segment with a stable
                 # global "Speaker N" label. Must run INSIDE this try (before the
@@ -554,7 +826,10 @@ async def transcribe_ws(ws: WebSocket) -> None:
                                 "message": "diarization unavailable — add a "
                                 "HuggingFace token (see how-to.html)",
                             })
-                    seg_dicts = [{"start": s, "end": e} for (s, e, t, sl) in segs]
+                    seg_dicts = [
+                        {"start": s, "end": e}
+                        for (s, e, t, sl, _lc) in segs
+                    ]
                     labeled = await asyncio.to_thread(
                         sess.speaker_tracker.label_segments, clean_wav, seg_dicts, cursor
                     )
@@ -562,6 +837,22 @@ async def transcribe_ws(ws: WebSocket) -> None:
                     # Parallel list: True where the speaker is an enrolled voice
                     # (lets the client paint "your voice" a fixed colour).
                     enrolled_flags = [bool(d.get("enrolled")) for d in labeled]
+            except Exception as exc:
+                _log(
+                    f"window transcription failed @ {cursor:.1f}: "
+                    f"{type(exc).__name__}: {str(exc)[:180]}"
+                )
+                await ws.send_json({
+                    "type": "status",
+                    "message": "skipping one unreadable audio window",
+                })
+                # Do not persist this as cache coverage, but do mark it covered
+                # for this live session so playback does not get stuck forever.
+                covered = cache.merge_intervals(covered + [[cursor, window_end]])
+                await ws.send_json(
+                    {"type": "progress", "start": cursor, "until": window_end}
+                )
+                continue
             finally:
                 # Remove the fetched window WAV; also remove the denoised file,
                 # but only when it's a distinct temp file (denoise returns the
@@ -611,34 +902,55 @@ async def transcribe_ws(ws: WebSocket) -> None:
 
             # Stream (and, for ollama, translate) the window's segments.
             produced: list[dict] = []
-            redo = False
-            for i, (start, end, text, src_lang) in enumerate(segs):
+            translations = None
+            if eff_engine == "ollama" and segs:
+                await ws.send_json({
+                    "type": "status",
+                    "message": f"translating with {model}",
+                })
+                translations = []
+                try:
+                    for _start, _end, text, src_lang, _lc in segs:
+                        try:
+                            out = await asyncio.to_thread(
+                                translate_llm.translate,
+                                text,
+                                src_lang or language,
+                                model,
+                                list(sess.llm_context),
+                                glossary,
+                            )
+                        except ValueError as exc:
+                            translations.append(None)
+                            _log(
+                                f"invalid translation skipped @ {_start:.1f}: "
+                                f"{str(exc)[:120]} source={text[:80]!r}"
+                            )
+                            continue
+                        translations.append(out)
+                        sess.llm_context.append((text, out))
+                        sess.llm_context[:] = sess.llm_context[-2:]
+                except Exception as exc:
+                    msg = (
+                        f"Accurate Czech translation failed with {model}: {exc}. "
+                        "Start Ollama and pull gemma2:9b, or switch the popup to "
+                        "Fast Whisper. This window was not cached."
+                    )
+                    _log(f"ollama translation FAILED video={video_id} @ {cursor:.1f}: {exc}")
+                    await ws.send_json({"type": "error", "message": msg[:300]})
+                    break
+
+            for i, (start, end, text, src_lang, _lang_conf) in enumerate(segs):
                 out_text = text
-                if eff_engine == "ollama":
-                    try:
-                        translated = await asyncio.to_thread(
-                            translate_llm.translate,
-                            text, src_lang, model, list(sess.llm_context),
-                            glossary=glossary,
-                        )
-                        if translated:
-                            out_text = translated
-                            sess.llm_context.append((text, translated))
-                            sess.llm_context[:] = sess.llm_context[-2:]
-                    except Exception:
-                        # Ollama died: warn once, fall back to Whisper translate,
-                        # and redo this window so nothing leaks out untranslated.
-                        if not warned_ollama:
-                            warned_ollama = True
-                            await ws.send_json({
-                                "type": "status",
-                                "message": "Ollama unavailable — using Whisper translate",
-                            })
-                        eff_engine = "whisper"
-                        eff_task = "translate"
-                        redo = True
-                        break
+                if translations is not None:
+                    out_text = translations[i]
+                    if not out_text:
+                        continue
                 seg = {"start": start, "end": end, "text": out_text}
+                if translations is not None:
+                    seg["source"] = text
+                    seg["sourceLang"] = src_lang or language or "unknown"
+                    seg["sourceKind"] = "whisperx-asr"
                 sp = speakers[i] if speakers else None
                 if sp:
                     seg["speaker"] = sp
@@ -647,10 +959,6 @@ async def transcribe_ws(ws: WebSocket) -> None:
                 produced.append(seg)
                 await ws.send_json({"type": "segment", **seg})
 
-            if redo:
-                sess.llm_context.clear()
-                continue
-
             # Mark the WHOLE window covered (even if silent) so we never reprocess
             # it, and persist incrementally.
             covered = cache.merge_intervals(covered + [[cursor, window_end]])
@@ -658,16 +966,16 @@ async def transcribe_ws(ws: WebSocket) -> None:
             await ws.send_json(
                 {"type": "progress", "start": cursor, "until": window_end}
             )
-            # Skip persistence when enrolled-only couldn't be honored this window:
-            # caching the unfiltered segments under the 'eo' variant would poison
-            # the cache (replays all speakers next session). Let it re-transcribe
-            # once enrollment works. The in-memory `covered` still advanced above,
-            # so this session won't loop on the window.
-            if not eo_filter_failed:
+            # Skip persistence when the result is likely to poison cache:
+            # enrolled-only couldn't be honored, language filtering blanked a
+            # non-empty window, or an audible window produced no captions.
+            if _should_persist_window(
+                produced, filtered_empty, eo_filter_failed, window_had_signal
+            ):
                 await asyncio.to_thread(
                     cache.append,
                     video_id, produced, [cursor, window_end],
-                    language, eff_task, eff_engine, model,
+                    language, eff_task, eff_engine, _cache_model_for(eff_engine, model),
                     variant,
                 )
 

@@ -11,6 +11,7 @@ are blocking and meant to be run from a thread by the async server.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import List, Optional, Tuple
 
@@ -22,6 +23,29 @@ DEFAULT_MODEL = "gemma2:9b"
 # Short timeout for liveness/listing; generation gets a longer one.
 _PROBE_TIMEOUT = 1.5
 _GEN_TIMEOUT = 120
+
+_BAD_OUTPUT_PATTERNS = [
+    r"(?i)\btranscript\s*:",
+    r"(?i)\btranslation\s*:",
+    r"(?i)\bimportant note\b",
+    r"(?i)\bnote\s*:",
+    r"(?i)\bas requested\b",
+    r"(?i)\bprovided terms\b",
+    r"(?i)\bthe rest of\b",
+    r"(?i)\bcontinues as requested\b",
+    r"(?i)\blet'?s (?:get this )?translat",
+    r"(?i)\bplease provide\b",
+    r"(?i)\bprovide (?:the|a) .*subtitle line\b",
+    r"(?i)\bi need (?:the|a) .*text\b",
+    r"(?i)\bi'?m ready to translate\b",
+    r"(?i)^here we go\s*:",
+    r"(?i)^alright,\s*let",
+]
+
+_NON_LATIN_RE = re.compile(
+    r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af"
+    r"\u0400-\u04ff\u0600-\u06ff\u0900-\u097f]"
+)
 
 
 def is_up() -> bool:
@@ -73,11 +97,16 @@ def _build_prompt(
     lines = [
         f"Translate this single {lang} subtitle line into ONE short, natural line "
         "of spoken English. Translate EVERY word — never leave a source-language "
-        "word in the output. Render swearing as the natural, equivalent English "
-        "swearing — never censor, euphemise, bracket, or omit it. Preserve slang "
-        "and gaming terms, and keep names/proper nouns. The output MUST be English "
-        "only: NEVER include any other language or non-Latin script. Output ONLY "
-        "the translated line — no notes, no extra sentences, no continuation.",
+        "word in the output. Prefer literal meaning over smoothing. Render "
+        "swearing and sexual insults as the natural, equivalent English swearing "
+        "— never censor, euphemise, bracket, or omit it. Do not turn sexual Czech "
+        "insults into generic fighting threats. Preserve slang and gaming terms, "
+        "and keep names/proper nouns. If the source contains a YouTube censor "
+        "marker like [ __ ], translate it as likely profanity (usually fuck, "
+        "fucking, shit, or damn) from context; do not output the brackets. The "
+        "output MUST be English only: NEVER include any other language or "
+        "non-Latin script. Output ONLY the "
+        "translated line — no notes, no extra sentences, no continuation.",
     ]
 
     if glossary:
@@ -125,6 +154,74 @@ def _build_prompt(
     return "\n".join(lines)
 
 
+def _relevant_glossary_block(text: str, glossary: Optional[List[dict]]) -> list[str]:
+    if not glossary:
+        return []
+    low = text.lower()
+    pinned = []
+    keep = []
+    for entry in glossary:
+        term = (entry.get("term") or "").strip()
+        if not term or term.lower() not in low:
+            continue
+        preferred = (entry.get("preferred") or "").strip()
+        if preferred:
+            pinned.append(f"- {term} => {preferred}")
+        else:
+            keep.append(term)
+
+    lines: list[str] = []
+    if pinned:
+        lines.append("Glossary mappings to honor:")
+        lines.extend(pinned)
+    if keep:
+        lines.append("Keep these proper nouns as-is: " + ", ".join(keep))
+    return lines
+
+
+def _build_batch_prompt(
+    items: List[Tuple[str, Optional[str]]],
+    prev_context: Optional[List[Tuple[str, str]]],
+    glossary: Optional[List[dict]] = None,
+) -> str:
+    lines = [
+        "Translate each subtitle item into short, natural spoken English.",
+        "Return ONLY valid JSON with this exact shape: "
+        '{"translations":["line 1","line 2"]}.',
+        "The array length MUST match the number of input items.",
+        "Do not include notes, explanations, labels, markdown, or prompt text.",
+        "Translate every source-language word; preserve profanity, slang, gaming "
+        "terms, and proper nouns. Output English only.",
+    ]
+
+    if prev_context:
+        lines.append("")
+        lines.append("Recent context for continuity only:")
+        for src, eng in prev_context[-2:]:
+            lines.append(f"- {src} => {eng}")
+
+    glossary_lines = []
+    for text, _lang in items:
+        glossary_lines.extend(_relevant_glossary_block(text, glossary))
+    if glossary_lines:
+        lines.append("")
+        lines.extend(list(dict.fromkeys(glossary_lines)))
+
+    lines.append("")
+    lines.append("Input items:")
+    for idx, (text, lang) in enumerate(items, start=1):
+        lines.append(f"{idx}. ({lang or 'foreign'}) {text}")
+    return "\n".join(lines)
+
+
+def _invalid_output(out: str) -> bool:
+    if not out:
+        return True
+    if _NON_LATIN_RE.search(out):
+        return True
+    return any(re.search(pattern, out) for pattern in _BAD_OUTPUT_PATTERNS)
+
+
 def _clean_response(response: str, source: str) -> str:
     """Normalise a raw Ollama reply into ONE short subtitle line.
 
@@ -166,7 +263,28 @@ def _clean_response(response: str, source: str) -> str:
         else:
             out = out[:limit].rstrip() + "…"
 
+    if _invalid_output(out):
+        return ""
+
     return out
+
+
+def _extract_batch_response(raw: str) -> list[str]:
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError("empty Ollama response")
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start == -1 or end <= start:
+            raise ValueError("Ollama did not return JSON")
+        data = json.loads(raw[start : end + 1])
+    translations = data.get("translations") if isinstance(data, dict) else None
+    if not isinstance(translations, list):
+        raise ValueError("Ollama JSON missing translations array")
+    return [str(x).strip() for x in translations]
 
 
 def translate(
@@ -205,4 +323,55 @@ def translate(
     r = requests.post(f"{BASE_URL}/api/generate", json=payload, timeout=_GEN_TIMEOUT)
     r.raise_for_status()
     data = r.json()
-    return _clean_response(data.get("response") or "", text)
+    out = _clean_response(data.get("response") or "", text)
+    if not out:
+        raise ValueError("invalid Ollama translation")
+    return out
+
+
+def translate_many(
+    items: List[Tuple[str, Optional[str]]],
+    model: str = DEFAULT_MODEL,
+    prev_context: Optional[List[Tuple[str, str]]] = None,
+    glossary: Optional[List[dict]] = None,
+) -> List[str]:
+    """Translate a window of subtitle lines in one Ollama call.
+
+    Raises if the model returns prompt/meta text, wrong-length output, non-Latin
+    script leakage, or anything other than clean subtitle lines.
+    """
+    clean_items = [(text.strip(), lang) for text, lang in items if text and text.strip()]
+    if not clean_items:
+        return []
+    if len(clean_items) == 1:
+        text, lang = clean_items[0]
+        return [translate(text, lang, model, prev_context, glossary)]
+
+    prompt = _build_batch_prompt(clean_items, prev_context, glossary)
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": 0.1,
+            "num_predict": min(1024, 120 + 120 * len(clean_items)),
+        },
+    }
+
+    r = requests.post(f"{BASE_URL}/api/generate", json=payload, timeout=_GEN_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    raw_items = _extract_batch_response(data.get("response") or "")
+    if len(raw_items) != len(clean_items):
+        raise ValueError(
+            f"Ollama returned {len(raw_items)} translations for {len(clean_items)} lines"
+        )
+
+    out = []
+    for raw, (source, _lang) in zip(raw_items, clean_items):
+        cleaned = _clean_response(raw, source)
+        if not cleaned:
+            raise ValueError("invalid Ollama translation")
+        out.append(cleaned)
+    return out

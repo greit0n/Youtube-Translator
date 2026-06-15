@@ -473,7 +473,7 @@
       <!-- Core controls — always visible -->
       <div class="card">
         <div class="row">
-          <label for="enabled">Enable subtitles</label>
+          <label for="enabled">Enable on this tab</label>
           <label class="switch">
             <input type="checkbox" id="enabled" />
             <span class="slider"></span>
@@ -510,8 +510,8 @@
         <div class="row">
           <label for="engine">Translation engine</label>
           <select id="engine">
-            <option value="ollama">Faithful (Ollama)</option>
-            <option value="whisper">Fast (Whisper)</option>
+            <option value="ollama">Accurate Czech (recommended)</option>
+            <option value="whisper">Fast Whisper (direct)</option>
           </select>
         </div>
 
@@ -521,6 +521,10 @@
         </div>
         <p class="hint warn" id="modelHint" hidden>
           No chat model found — run <code>ollama pull gemma2:9b</code>
+        </p>
+        <p class="hint">
+          Accurate Czech uses audio-based WhisperX Czech transcription, then
+          Gemma translates each source line.
         </p>
       </div>
 
@@ -619,7 +623,7 @@
           <div class="row">
             <span class="row-label">
               Only my voice
-              <span class="sublabel">hide game audio &amp; other speakers</span>
+              <span class="sublabel">experimental speaker filter</span>
             </span>
             <label class="switch">
               <input type="checkbox" id="enrolledOnly" />
@@ -627,8 +631,8 @@
             </label>
           </div>
           <p class="hint">
-            Shows only your enrolled voice — drops game audio and everyone else.
-            Needs a clip in helper/enroll/ and turns on speaker detection
+            Experimental: can hide valid streamer speech if the voice match is
+            wrong. Needs a clip in helper/enroll/ and turns on speaker detection
             automatically.
           </p>
           <div class="row">
@@ -660,8 +664,8 @@
               placeholder="Geralt&#10;Kaer Morhen = Kaer Morhen&#10;druh = buddy"></textarea>
             <p class="hint" style="margin-top: 8px">
               One entry per line: <code>term</code> or
-              <code>term = preferred</code>. Terms bias Whisper recognition and
-              keep translations consistent.
+              <code>term = preferred</code>. Accurate Czech uses these for Gemma
+              translation; Fast Whisper may also use bare terms as ASR hints.
             </p>
           </div>
         </div>
